@@ -76,3 +76,41 @@ def generate_grid_targets(screen_width: int, screen_height: int) -> list[dict]:
             target_id += 1
 
     return targets
+
+ def build_bullseye_stimuli(win: visual.Window) -> dict:
+    dot = visual.Circle(
+        win,   
+        radius=DOT_RADIUS_PX,
+        pos=(0, 0),
+        fillColor=TARGET_COLOR,
+        lineColor=TARGET_COLOR,
+        unit="pix",
+    )
+    cross_h = visual.Line(
+        win,
+        start=(-CROSSHAIR_ARM_PX, 0),
+        end=(CROSSHAIR_ARM_PX, 0),
+        pos=(0, 0),
+        lineColor=TARGET_COLOR,
+        lineWidth=CROSSHAIR_LINE_WIDTH_PX,
+        unit="pix",
+    )
+    cross_v = visual.Line(
+        win,
+        start=(0, -CROSSHAIR_ARM_PX),
+        end=(0, CROSSHAIR_ARM_PX),
+        pos=(0, 0),
+        lineColor=TARGET_COLOR,
+        lineWidth=CROSSHAIR_LINE_WIDTH_PX,
+        unit="pix",
+    )
+    ring = visual.Circle(
+        win,
+        radius=RING_START_RADIUS_PX,
+        pos=(0, 0),
+        fillColor=None,
+        lineColor=TARGET_COLOR,
+        lineWidth=RING_LINE_WIDTH_PX,
+        unit="pix",
+    )
+    return {"dot": dot, "cross_h": cross_h, "cross_v": cross_v, "ring": ring}

@@ -174,3 +174,31 @@ def wait_blank_interval(win: visual.Window, duration_s: float) -> None:
     win.flip()
     if "escape" in event.getKeys():
         raise KeyboardInterrupt("Calibration aborted by user (ESC).")
+
+
+def present_shrinking_bullseye(
+    win: visual.Window,
+    stimuli: dict,
+    target: dict,
+    progress_text: visual.TextStim, 
+    duration_s: float = TARGET_DURATION_S,
+) -> float:
+    ring = stimuli["ring"]
+    set_bullseye_position(stimuli, target["pos"])
+    ring.radius = RING_START_RADIUS_PX
+
+    clock = core.Clock()
+    timestamp_start = time.time()
+
+    while clock.getTime() < duration_s:
+        progress = min(clock.getTime() / duration_s, 1.0)
+        ring.radius = RING_START_RADIUS_PX + ( 
+        RING_END_RADIUS_PX - RING_START_RADIUS_PX
+        )
+        draw_bullseye(stimuli, progress_text)
+        win.flip()
+        if "escape" in event.getKeys():
+            raise KeyboardInterrupt("Calibration aborted by user (ESC).")
+    
+    return timestamp_start
+

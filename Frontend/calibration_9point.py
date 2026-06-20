@@ -127,3 +127,22 @@ def draw_bullseye(stimuli: dict, progress_text: visual.TextStim | None = None) -
     stimuli["dot"].draw()
    if progress_text is not None:
         progress_text.draw()
+
+def wait_for_spacebar(win: visual.Window, message: str) -> None:
+    text_stim = visual.TextStim(
+    win, 
+    text=message, 
+    color=TARGET_COLOR
+    height=28,
+    wrapWidth=win.size[0] * 0.75,
+    units="pix",
+    )
+    event.clearEvents()
+    while True:
+        if "escape" in event.getKeys():
+            raise KeyboardInterrupt("Calibration aborted by user (ESC).")     
+        texrt_stim.draw()
+        win.flip()
+        if event.getKeys(keyList=["space"]):
+            event.clearEvents(eventType="keyboard")
+            break

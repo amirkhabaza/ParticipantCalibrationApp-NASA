@@ -146,3 +146,22 @@ def wait_for_spacebar(win: visual.Window, message: str) -> None:
         if event.getKeys(keyList=["space"]):
             event.clearEvents(eventType="keyboard")
             break
+
+def resolve_window_size(win: visual.Window) -> tuple[int, int]:
+  """
+  Drawable Pixel dimesions for units='pix.
+  On macOS Retina, win.size is 2x the coordinate space used for drawing.
+  """
+  win.flip()
+  fb_w, fb_h = float(win.size[0]), float(win.size[1])
+  try:
+      logical_w = float(win.winHandle.screen.width)
+      logical_h = float(win.winHandle.screen.height)
+  except Exception:
+      return int(round(fb_w)), int(round(fb_h))
+  
+  if sys.platform == "darwin" and win.useRetina:
+      if abs(fb_w - logical_w * 2) < 2 and abs(fb_h - logical_h * 2) < 2:
+          return int(round(logical_w)), int(round(logical_h))
+      
+    return int(round(fb_w)), int(round(fb_h))

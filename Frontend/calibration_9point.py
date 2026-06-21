@@ -208,3 +208,124 @@ def save_calibration_csv(rows: list[dict], output_path: Path) -> None:
         writer = csv.DictWriter(csvfile, fieldnames=CSV_HEADERS)
         writer.writeheader()
         writer.writerows(rows)
+
+def run_calibration() -> Path:
+    output_path = PROJECT_ROOT / "output" / OUTPUT_FILENAME
+
+    win = visual.Window(
+        fullscr=True,
+        unit="pix",
+        useRetina=True,
+        color=BACKGROUND_COLOR,
+        colorSpace="rgb",
+        allowGUI=False,
+        screen=0,
+    )
+
+    rows: list[dict] = []
+
+    try:
+        screen_width, screen_height = resolve_window_size(win)
+        fb_w, fb_h = int(round(win.size[0])), int(round(win.size[1]))
+        print (
+            f"Calibration display size: {screen_width} x {screen_height} px "
+            f"(framebuffer {fb_w} x {fb_h})"
+        )
+
+        bullseye = build_bullseye_stimuli(win)
+        progress_text = visual.TextStim(
+            win,
+            text="",
+            color=TARGET_COLOR,
+            height=22,
+            pos=(0, -(screen_height / 2.0) + 40),
+            units="pix",
+        )
+
+
+           auto_mode = "--auto" in sys.argv 
+            if auto_mode:
+                print("Auto mode enabled: skipping instructions and using random targets.")
+                event.clearEvents(eventType="keyboard")
+            else:
+                wait_for_spacebar(win, INSTRUCTIONS_TEXT)            
+
+        targets = generate_grid_targets(screen_width, screen_height)
+        if len(targets) !=9:
+            raise RuntimeError(f"Expected 9 calibrationtargets, got {len(targets)}")
+        
+        presentation_order = targets.copy()
+        if RANDOM_SEED is not None:
+            random.seed(RANDOM_SEED)
+              random.shuffle(presentation_order)
+        print("Presentation order (Target_ID):", [t["Target_ID"] for t in presentation_order])
+
+        wait_blank_interval(win, PRE_TARGET_BLANK_S)
+
+        total_targets = len(presentation_order)
+        for index, target in enumerate(presentation_order):
+            progress_text.text = f"Calibration point {index + 1} of {total_targets}"
+            timestamp_start = present_shrinking_bullseye(
+                win, bullseye, target, progress_text
+            )
+            win.flip()
+            timestamp_end = time.time()
+
+            rows.append(
+                {
+                    "Timestamp_Start": f"{timestamp_start:.6f}",
+                    "Timestamp_End": f"{timestamp_end:.6f}",
+                    "Target_ID": target["Target_ID"],
+                    "Target_X_Px": target["Target_X_Px"],
+                    "Target_Y_Px": target["Target_Y_Px"],
+                    "Screen_Width": screen_width,
+                    "Screen_Height": screen_height,
+                }
+            )
+            print(
+                f"Logged target {index + 1}/{total_targets} "
+                f"(ID={target['Target_ID']}, x={target['Target_X_Px']}, y={target['Target_Y_Px']})"
+            )
+
+            if index < total_targets - 1:
+                wait_blank_interval(win, INTER_TARGET_BLANK_S)
+
+        done_text = visual.TextStim(
+            win,
+            text="Calibration complete.\n\nPress any key to exit.",
+            color=TARGET_COLOR,
+            height=28,
+            wrapWidth=screen_width * 0.75,
+            units="pix",
+        )
+        event.clearEvents(eventType="keyboard")
+        done_text.draw()
+        win.flip()
+        if not auto_mode:
+            event.waitKeys()
+
+    finally:
+        if rows:
+            save_calibration_csv(rows, output_path)
+            print(f"Saved {len(rows)} calibration target(s) to {output_path}")
+        win.close()
+        core.quit()
+
+    return output_path
+
+
+def main() -> int:
+    try:
+        output_path = run_calibration()
+        print(f"Calibration finished. Data saved to: {output_path}")
+        return 0
+    except KeyboardInterrupt:
+        print("\nCalibration aborted.", file=sys.stderr)
+        return 130
+    except Exception as exc:
+        print(f"\nCalibration failed: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

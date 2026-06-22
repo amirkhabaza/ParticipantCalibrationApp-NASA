@@ -1,0 +1,17 @@
+# Participant Calibration App — Python dependencies
+# Tested targets: macOS (work Mac), Windows 11 (HP EliteBook 8)
+#
+# Use Python 3.10 (recommended). PsychoPy pip wheels support Python 3.8–3.10.
+#
+# Setup:
+#   python3.10 -m venv .venv
+#   source .venv/bin/activate          # macOS / Linux
+#   .venv\Scripts\activate             # Windows (HP EliteBook)
+#   pip install --upgrade pip
+#   pip install -r requirements.txt
+#
+# Run:
+#   cd Frontend
+#   python calibration_9point.py
+
+psychopy>=2024.1.4,<2027.0.0

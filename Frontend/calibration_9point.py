@@ -12,8 +12,24 @@ from pathlib import Path
 
 from psychopy import core, event, visual
 
-# Project root is one level up from calibration/
+# Project root is one level up from Frontend/
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def enable_windows_dpi_awareness() -> None:
+    """Use physical pixels on scaled Windows displays (e.g. HP EliteBook at 125%)."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        # 2 = PROCESS_PER_MONITOR_DPI_AWARE (Windows 8.1+)
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except Exception:
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
 
 # Configuration
 
@@ -149,11 +165,25 @@ def wait_for_spacebar(win: visual.Window, message: str) -> None:
             break
 
 
+def create_calibration_window() -> visual.Window:
+    """Open a fullscreen window with platform-appropriate display settings."""
+    return visual.Window(
+        fullscr=True,
+        units="pix",
+        useRetina=sys.platform == "darwin",
+        color=BACKGROUND_COLOR,
+        colorSpace="rgb",
+        allowGUI=False,
+        screen=0,
+    )
+
+
 def resolve_window_size(win: visual.Window) -> tuple[int, int]:
     """
     Drawable pixel dimensions for units='pix'.
 
-    On macOS Retina, win.size is 2× the coordinate space used for drawing.
+    macOS Retina: win.size can be 2× the logical coordinate space.
+    Windows/Linux: win.size matches the drawable pixel coordinate space.
     """
     win.flip()
     fb_w, fb_h = float(win.size[0]), float(win.size[1])
@@ -218,15 +248,10 @@ def save_calibration_csv(rows: list[dict], output_path: Path) -> None:
 def run_calibration() -> Path:
     output_path = PROJECT_ROOT / "output" / OUTPUT_FILENAME
 
-    win = visual.Window(
-        fullscr=True,
-        units="pix",
-        useRetina=True,
-        color=BACKGROUND_COLOR,
-        colorSpace="rgb",
-        allowGUI=False,
-        screen=0,
-    )
+    enable_windows_dpi_awareness()
+    print(f"Platform: {sys.platform}")
+
+    win = create_calibration_window()
 
     rows: list[dict] = []
 
@@ -235,7 +260,7 @@ def run_calibration() -> Path:
         fb_w, fb_h = int(round(win.size[0])), int(round(win.size[1]))
         print(
             f"Calibration display size: {screen_width} x {screen_height} px "
-            f"(framebuffer {fb_w} x {fb_h})"
+            f"(framebuffer {fb_w} x {fb_h}, retina={sys.platform == 'darwin'})"
         )
 
         bullseye = build_bullseye_stimuli(win)

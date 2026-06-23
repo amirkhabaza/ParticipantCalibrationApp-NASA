@@ -13,8 +13,8 @@ from pathlib import Path
 from psychopy import core, event, visual
 
 
-# Project root is one level up from Frontend/
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# All paths relative to this script's directory (Frontend/)
+FRONTEND_DIR = Path(__file__).resolve().parent
 
 
 def enable_windows_dpi_awareness() -> None:
@@ -285,10 +285,11 @@ def save_calibration_csv(rows: list[dict], output_path: Path) -> None:
 
 
 def run_calibration() -> Path:
-    output_path = PROJECT_ROOT / "output" / OUTPUT_FILENAME
+    output_path = FRONTEND_DIR / "output" / OUTPUT_FILENAME
 
     enable_windows_dpi_awareness()
     print(f"Platform: {sys.platform}")
+    print(f"Output file: {output_path}")
 
     win = create_calibration_window()
 

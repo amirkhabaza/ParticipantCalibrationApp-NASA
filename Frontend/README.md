@@ -201,6 +201,7 @@ Edit constants at the top of `calibration_9point.py`:
 | `CROSSHAIR_ARM_PX` | `32` | Half-length of each crosshair arm |
 | `CROSSHAIR_LINE_WIDTH_PX` | `3` | Crosshair stroke width (visibility on Retina) |
 | `TARGET_COLOR` / `BACKGROUND_COLOR` | `[0,0,0]` / `[0,0,0]` 
+| `SCREEN_INDEX` | `0` | Default screen index (0 = primary, 1 = secondary). Supports env var `SCREEN`. |
 
 ### CLI flags
 
@@ -208,9 +209,10 @@ Edit constants at the top of `calibration_9point.py`:
 |------|--------|
 | `--auto` | Skip instructions and exit prompt (testing / CI) |
 | `--no-circles` | Crosshairs only |
+| `--screen <index>` | Choose screen to display the calibration window on (e.g., `1` for secondary screen) |
 
 
-python calibration_9point.py --auto --no-circles
+python calibration_9point.py --auto --no-circles --screen 1
 
 
 ---

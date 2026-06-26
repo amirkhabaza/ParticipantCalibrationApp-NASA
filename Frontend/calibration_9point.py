@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import csv
+import os
 import random
 import sys
 import time
@@ -40,6 +41,7 @@ PRE_TARGET_BLANK_S = 0.3
 INTER_TARGET_BLANK_S = 0.5  # blank between targets — time to find the next one
 EDGE_INSET_FRACTION = 0.10
 SHOW_CIRCLES = False  # False = no shrinking ring; center dot + crosshairs always shown
+SCREEN_INDEX = 0      # default screen index (0 = primary, 1 = secondary, etc.)
 
 DOT_RADIUS_PX = 15
 CROSSHAIR_ARM_PX = 32
@@ -188,8 +190,32 @@ def wait_for_spacebar(win: visual.Window, message: str) -> None:
             break
 
 
+def get_screen_index() -> int:
+    """Resolve the screen index from CLI arguments, environment variables, or config."""
+    for i, arg in enumerate(sys.argv):
+        if arg.startswith("--screen="):
+            try:
+                return int(arg.split("=", 1)[1])
+            except ValueError:
+                pass
+        elif arg == "--screen" and i + 1 < len(sys.argv):
+            try:
+                return int(sys.argv[i + 1])
+            except ValueError:
+                pass
+    env_val = os.environ.get("CALIBRATION_SCREEN") or os.environ.get("SCREEN")
+    if env_val is not None:
+        try:
+            return int(env_val)
+        except ValueError:
+            pass
+    return SCREEN_INDEX
+
+
 def create_calibration_window() -> visual.Window:
     """Open a fullscreen window with platform-appropriate display settings."""
+    screen_idx = get_screen_index()
+    print(f"Opening window on screen {screen_idx}")
     return visual.Window(
         fullscr=True,
         units="pix",
@@ -197,7 +223,7 @@ def create_calibration_window() -> visual.Window:
         color=BACKGROUND_COLOR,
         colorSpace="rgb",
         allowGUI=False,
-        screen=0,
+        screen=screen_idx,
     )
 
 

@@ -9,6 +9,7 @@ import os
 import random
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from psychopy import core, event, visual
@@ -58,7 +59,7 @@ INSTRUCTIONS_TEXT = (
     "Press the SPACEBAR to begin."
 )
 
-OUTPUT_FILENAME = "calibration_targets.csv"
+OUTPUT_BASENAME = "calibration_targets"
 CSV_HEADERS = [
     "Timestamp_Start",
     "Timestamp_End",
@@ -68,6 +69,14 @@ CSV_HEADERS = [
     "Screen_Width",
     "Screen_Height",
 ]
+
+
+def build_output_filename() -> str:
+    """UTC date-time to the millisecond, filesystem-safe (e.g. ..._2026-06-29T14-30-45-123Z.csv)."""
+    now = datetime.now(timezone.utc)
+    stamp = now.strftime("%Y-%m-%dT%H-%M-%S")
+    ms = now.microsecond // 1000
+    return f"{OUTPUT_BASENAME}_{stamp}-{ms:03d}Z.csv"
 
 
 def generate_grid_targets(screen_width: int, screen_height: int) -> list[dict]:
@@ -310,7 +319,7 @@ def save_calibration_csv(rows: list[dict], output_path: Path) -> None:
 
 
 def run_calibration() -> Path:
-    output_path = FRONTEND_DIR / "output" / OUTPUT_FILENAME
+    output_path = FRONTEND_DIR / "output" / build_output_filename()
 
     enable_windows_dpi_awareness()
     print(f"Platform: {sys.platform}")

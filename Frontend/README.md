@@ -30,7 +30,7 @@ cd Frontend
 ./run.sh --auto
 ```
 
-**Output:** `Frontend/output/calibration_targets.csv`
+**Output:** `Frontend/output/calibration_targets_<UTC-timestamp>.csv` (one file per run; see [Output CSV](#output-csv))
 
 ---
 
@@ -82,7 +82,7 @@ This app does **not** talk to the eye tracker. It fullscreen-opens on the stimul
           └──────────────────────┘
 ```
 
-**Typical session:** start eye-tracker recording → run this app on the same monitor → stop recording → align `calibration_targets.csv` with gaze export by timestamp.
+**Typical session:** start eye-tracker recording → run this app on the same monitor → stop recording → align the session’s `calibration_targets_*.csv` with gaze export by timestamp.
 
 ---
 
@@ -98,7 +98,7 @@ ParticipantCalibrationApp-FRONTEND-/
     ├── run.sh                   ← macOS/Linux: setup + run
     ├── run.ps1                  ← Windows: setup + run
     └── output/
-        └── calibration_targets.csv   ← Created after each run (gitignored)
+        └── calibration_targets_<UTC-timestamp>.csv   ← Created after each run (gitignored)
 ```
 
 | File | Purpose |
@@ -134,7 +134,7 @@ Always run from `Frontend/` (or use the run scripts, which `cd` there for you).
 
 ### 9-point grid
 
-Targets sit on a 3×3 grid at **10%, 50%, 90%** of width and height. IDs are fixed by position (row-major, top-left = 1):
+Targets sit on a 3×3 grid at **30%, 50%, 70%** of width and height (`EDGE_INSET_FRACTION = 0.30`). IDs are fixed by position (row-major, top-left = 1):
 
 ```
 ┌─────┬─────┬─────┐
@@ -162,7 +162,19 @@ python calibration_9point.py --no-circles   # force crosshairs + dot only (no ri
 
 ## Output CSV
 
-Path: `Frontend/output/calibration_targets.csv`
+**Directory:** `Frontend/output/`
+
+Each run writes a new file named with the **UTC session start time** (millisecond precision):
+
+```
+calibration_targets_<YYYY-MM-DD>T<HH-MM-SS>-<mmm>Z.csv
+```
+
+Example: `calibration_targets_2026-06-29T18-23-16-287Z.csv`
+
+- Timestamp is captured when the session starts (before instructions).
+- Colons are replaced with hyphens so the name is safe on all platforms.
+- Aborted runs still save completed targets to the same file for that session.
 
 | Column | Description |
 |--------|-------------|
@@ -201,13 +213,16 @@ Edit constants at the top of `calibration_9point.py`:
 | `RANDOM_SEED` | `None` | Shuffle seed; `None` = new random order each run |
 | `PRE_TARGET_BLANK_S` | `0.3` | Blank before first target |
 | `INTER_TARGET_BLANK_S` | `0.5` | Blank between targets (time to locate next point) |
-| `EDGE_INSET_FRACTION` | `0.10` | Grid inset from edges |
+| `EDGE_INSET_FRACTION` | `0.30` | Grid inset from edges |
 | `SCREEN_INDEX` | `0` | Default monitor index (0 = primary, 1 = secondary) |
 | `SHOW_CIRCLES` | `False` | `True` = add shrinking ring around dot |
 | `DOT_RADIUS_PX` | `15` | Center dot radius |
 | `CROSSHAIR_ARM_PX` | `32` | Half-length of each crosshair arm |
 | `CROSSHAIR_LINE_WIDTH_PX` | `3` | Crosshair stroke width (visibility on Retina) |
+| `OUTPUT_BASENAME` | `calibration_targets` | Filename prefix before UTC timestamp |
 | `TARGET_COLOR` / `BACKGROUND_COLOR` | `[1,1,1]` / `[0,0,0]` | White targets on black (`rgb` color space, −1…1) |
+
+Filename format is built by `build_output_filename()` from `OUTPUT_BASENAME` plus UTC date-time to the millisecond.
 
 ### Monitor selection
 
@@ -286,7 +301,8 @@ Single-file design. Entry: `main()` → `run_calibration()`.
 | `build_bullseye_stimuli()` | Dot, crosshairs, ring |
 | `present_shrinking_bullseye()` | Show one target; return Unix VSYNC start/end |
 | `unix_epoch_offset()` / `flip_to_unix_time()` | Map PsychoPy clock → Unix epoch |
-| `save_calibration_csv()` | Write `output/calibration_targets.csv` |
+| `build_output_filename()` | UTC timestamped CSV name for this session |
+| `save_calibration_csv()` | Write `output/calibration_targets_<UTC-timestamp>.csv` |
 | `wait_for_spacebar()` / `wait_blank_interval()` | Participant pacing + ESC abort |
 
 **Data flow:**

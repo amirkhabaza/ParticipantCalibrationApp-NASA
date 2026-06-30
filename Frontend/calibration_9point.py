@@ -36,7 +36,8 @@ def enable_windows_dpi_awareness() -> None:
 
 # Configuration
 
-TARGET_DURATION_S = 1.5  # seconds each target stays on screen (was 1.0)
+BRIGHT_DURATION_S = 2.0  # seconds the bright target stays on after confirmation
+AUTO_DIM_WAIT_S = 0.3    # --auto mode: dim phase before auto-confirming each target
 RANDOM_SEED = None
 PRE_TARGET_BLANK_S = 0.3
 INTER_TARGET_BLANK_S = 0.5  # blank between targets — time to find the next one
@@ -51,18 +52,32 @@ RING_START_RADIUS_PX = 48
 RING_END_RADIUS_PX = DOT_RADIUS_PX + 2
 RING_LINE_WIDTH_PX = 2
 
-TARGET_COLOR = [1, 1, 1]       # white (PsychoPy rgb: -1..1)
+TARGET_COLOR = [1, 1, 1]         # bright white (PsychoPy rgb: -1..1)
+DIM_COLOR = [0.25, 0.25, 0.25]   # dim grey — visible but clearly not recording yet
 BACKGROUND_COLOR = [-1, -1, -1]  # black — [-1,-1,-1] in rgb is mid-grey
+TARGET_CONFIRM_KEY = "space"
+
+TEXT_HEIGHT_PX = 28
+TEXT_WRAP_FRACTION = 0.75
+PROMPT_COLOR = [0.7, 0.7, 0.7]
 
 INSTRUCTIONS_TEXT = (
-    "Please focus your gaze precisely on the center of each dot as it appears.\n\n"
-    "Press the SPACEBAR to begin."
+    "Eye-tracker calibration\n\n"
+    "1. A dim dot will appear.\n"
+    "2. Look at the center of the dot.\n"
+    "3. Press SPACEBAR when you are ready.\n"
+    "4. The dot will turn bright for 2 seconds. Keep looking at it.\n\n"
+    "Press SPACEBAR to begin."
 )
+
+DIM_PROMPT_TEXT = "Look at the dot, then press SPACEBAR"
 
 OUTPUT_BASENAME = "calibration_targets"
 CSV_HEADERS = [
-    "Timestamp_Start",
-    "Timestamp_End",
+    "Dim_Timestamp_Start",
+    "Dim_Timestamp_End",
+    "Bright_Timestamp_Start",
+    "Bright_Timestamp_End",
     "Target_ID",
     "Target_X_Px",
     "Target_Y_Px",
@@ -149,6 +164,14 @@ def set_bullseye_position(stimuli: dict, position: tuple[float, float]) -> None:
         stim.pos = position
 
 
+def set_bullseye_color(stimuli: dict, color: list[float]) -> None:
+    stimuli["dot"].setFillColor(color, colorSpace="rgb")
+    stimuli["dot"].setLineColor(color, colorSpace="rgb")
+    stimuli["cross_h"].setLineColor(color, colorSpace="rgb")
+    stimuli["cross_v"].setLineColor(color, colorSpace="rgb")
+    stimuli["ring"].setLineColor(color, colorSpace="rgb")
+
+
 def circles_enabled() -> bool:
     if "--no-circles" in sys.argv:
         return False
@@ -162,6 +185,44 @@ def unix_epoch_offset() -> float:
 
 def flip_to_unix_time(flip_time: float, epoch_offset: float) -> float:
     return epoch_offset + flip_time
+
+
+def make_screen_text(
+    win: visual.Window,
+    text: str,
+    screen_width: int,
+    *,
+    color: list[float] | None = None,
+    pos: tuple[float, float] = (0, 0),
+) -> visual.TextStim:
+    return visual.TextStim(
+        win,
+        text=text,
+        color=color if color is not None else TARGET_COLOR,
+        height=TEXT_HEIGHT_PX,
+        wrapWidth=screen_width * TEXT_WRAP_FRACTION,
+        units="pix",
+        pos=pos,
+        alignText="center",
+        anchorHoriz="center",
+        anchorVert="center",
+    )
+
+
+def poll_keys(*allowed: str) -> list[str]:
+    """Return pressed keys once per frame (PsychoPy clears the queue on each call)."""
+    if allowed:
+        return event.getKeys(keyList=list(allowed))
+    return event.getKeys()
+
+
+def abort_if_escape(keys: list[str]) -> None:
+    if "escape" in keys:
+        raise KeyboardInterrupt("Calibration aborted by user (ESC).")
+
+
+def confirm_key_pressed(keys: list[str]) -> bool:
+    return TARGET_CONFIRM_KEY in keys
 
 
 def draw_bullseye(
@@ -179,22 +240,19 @@ def draw_bullseye(
         progress_text.draw()
 
 
-def wait_for_spacebar(win: visual.Window, message: str) -> None:
-    text_stim = visual.TextStim(
-        win,
-        text=message,
-        color=TARGET_COLOR,
-        height=28,
-        wrapWidth=win.size[0] * 0.75,
-        units="pix",
-    )
+def wait_for_spacebar(
+    win: visual.Window,
+    message: str,
+    screen_width: int,
+) -> None:
+    text_stim = make_screen_text(win, message, screen_width)
     event.clearEvents()
     while True:
-        if "escape" in event.getKeys():
-            raise KeyboardInterrupt("Calibration aborted by user (ESC).")
         text_stim.draw()
         win.flip()
-        if event.getKeys(keyList=["space"]):
+        keys = poll_keys("escape", TARGET_CONFIRM_KEY)
+        abort_if_escape(keys)
+        if confirm_key_pressed(keys):
             event.clearEvents(eventType="keyboard")
             break
 
@@ -264,8 +322,54 @@ def wait_blank_interval(win: visual.Window, duration_s: float) -> None:
     clock = core.Clock()
     while clock.getTime() < duration_s:
         win.flip()
-        if "escape" in event.getKeys():
-            raise KeyboardInterrupt("Calibration aborted by user (ESC).")
+        keys = poll_keys("escape")
+        abort_if_escape(keys)
+
+
+def wait_for_target_confirm(
+    win: visual.Window,
+    stimuli: dict,
+    target: dict,
+    progress_text: visual.TextStim | None,
+    *,
+    show_circles: bool = True,
+    auto_confirm_after_s: float | None = None,
+    dim_prompt_text: visual.TextStim | None = None,
+    epoch_offset: float,
+) -> tuple[float, float]:
+    """Show a dim target until confirm; return vsync times for the dim phase."""
+    set_bullseye_position(stimuli, target["pos"])
+    set_bullseye_color(stimuli, DIM_COLOR)
+    if show_circles:
+        stimuli["ring"].radius = RING_START_RADIUS_PX
+
+    event.clearEvents(eventType="keyboard")
+    clock = core.Clock()
+    dim_start: float | None = None
+    dim_end: float | None = None
+    while True:
+        draw_bullseye(stimuli, progress_text, show_circles=show_circles)
+        if dim_prompt_text is not None:
+            dim_prompt_text.draw()
+        flip_time = win.flip()
+        if flip_time is None:
+            flip_time = core.getTime()
+        flip_unix = flip_to_unix_time(flip_time, epoch_offset)
+        if dim_start is None:
+            dim_start = flip_unix
+        dim_end = flip_unix
+        keys = poll_keys("escape", TARGET_CONFIRM_KEY)
+        abort_if_escape(keys)
+        if auto_confirm_after_s is not None and clock.getTime() >= auto_confirm_after_s:
+            break
+        if confirm_key_pressed(keys):
+            event.clearEvents(eventType="keyboard")
+            break
+
+    if dim_start is None or dim_end is None:
+        raise RuntimeError("Dim target was not displayed (no vsync flip recorded).")
+
+    return dim_start, dim_end
 
 
 def present_shrinking_bullseye(
@@ -273,19 +377,32 @@ def present_shrinking_bullseye(
     stimuli: dict,
     target: dict,
     progress_text: visual.TextStim | None,
-    duration_s: float = TARGET_DURATION_S,
+    duration_s: float = BRIGHT_DURATION_S,
     *,
     show_circles: bool = True,
     epoch_offset: float,
-) -> tuple[float, float]:
+    auto_confirm_after_s: float | None = None,
+    dim_prompt_text: visual.TextStim | None = None,
+) -> tuple[float, float, float, float]:
+    dim_start, dim_end = wait_for_target_confirm(
+        win,
+        stimuli,
+        target,
+        progress_text,
+        show_circles=show_circles,
+        auto_confirm_after_s=auto_confirm_after_s,
+        dim_prompt_text=dim_prompt_text,
+        epoch_offset=epoch_offset,
+    )
+
     ring = stimuli["ring"]
-    set_bullseye_position(stimuli, target["pos"])
+    set_bullseye_color(stimuli, TARGET_COLOR)
     if show_circles:
         ring.radius = RING_START_RADIUS_PX
 
     clock = core.Clock()
-    timestamp_start: float | None = None
-    timestamp_end: float | None = None
+    bright_start: float | None = None
+    bright_end: float | None = None
 
     while clock.getTime() < duration_s:
         if show_circles:
@@ -298,16 +415,16 @@ def present_shrinking_bullseye(
         if flip_time is None:
             flip_time = core.getTime()
         flip_unix = flip_to_unix_time(flip_time, epoch_offset)
-        if timestamp_start is None:
-            timestamp_start = flip_unix
-        timestamp_end = flip_unix
-        if "escape" in event.getKeys():
-            raise KeyboardInterrupt("Calibration aborted by user (ESC).")
+        if bright_start is None:
+            bright_start = flip_unix
+        bright_end = flip_unix
+        keys = poll_keys("escape")
+        abort_if_escape(keys)
 
-    if timestamp_start is None or timestamp_end is None:
-        raise RuntimeError("Target was not displayed (no vsync flip recorded).")
+    if bright_start is None or bright_end is None:
+        raise RuntimeError("Bright target was not displayed (no vsync flip recorded).")
 
-    return timestamp_start, timestamp_end
+    return dim_start, dim_end, bright_start, bright_end
 
 
 def save_calibration_csv(rows: list[dict], output_path: Path) -> None:
@@ -341,12 +458,27 @@ def run_calibration() -> Path:
 
         auto_mode = "--auto" in sys.argv
         show_circles = circles_enabled()
+        auto_confirm_after_s = AUTO_DIM_WAIT_S if auto_mode else None
+        dim_prompt_text = None
+        if not auto_mode:
+            dim_prompt_text = make_screen_text(
+                win,
+                DIM_PROMPT_TEXT,
+                screen_width,
+                color=PROMPT_COLOR,
+                pos=(0, -(screen_height / 2.0) + 56),
+            )
         print(f"Show circles: {show_circles}")
+        print(
+            f"Gated targets: dim until "
+            f"{'auto-confirm' if auto_mode else TARGET_CONFIRM_KEY!r}, "
+            f"then bright for {BRIGHT_DURATION_S}s"
+        )
         if auto_mode:
             print("Auto mode: skipping instructions and exit prompt.")
             event.clearEvents(eventType="keyboard")
         else:
-            wait_for_spacebar(win, INSTRUCTIONS_TEXT)
+            wait_for_spacebar(win, INSTRUCTIONS_TEXT, screen_width)
 
         targets = generate_grid_targets(screen_width, screen_height)
         if len(targets) != 9:
@@ -365,19 +497,23 @@ def run_calibration() -> Path:
 
         total_targets = len(presentation_order)
         for index, target in enumerate(presentation_order):
-            timestamp_start, timestamp_end = present_shrinking_bullseye(
+            dim_start, dim_end, bright_start, bright_end = present_shrinking_bullseye(
                 win,
                 bullseye,
                 target,
                 None,
                 show_circles=show_circles,
                 epoch_offset=epoch_offset,
+                auto_confirm_after_s=auto_confirm_after_s,
+                dim_prompt_text=dim_prompt_text,
             )
 
             rows.append(
                 {
-                    "Timestamp_Start": f"{timestamp_start:.6f}",
-                    "Timestamp_End": f"{timestamp_end:.6f}",
+                    "Dim_Timestamp_Start": f"{dim_start:.6f}",
+                    "Dim_Timestamp_End": f"{dim_end:.6f}",
+                    "Bright_Timestamp_Start": f"{bright_start:.6f}",
+                    "Bright_Timestamp_End": f"{bright_end:.6f}",
                     "Target_ID": target["Target_ID"],
                     "Target_X_Px": target["Target_X_Px"],
                     "Target_Y_Px": target["Target_Y_Px"],
@@ -388,19 +524,17 @@ def run_calibration() -> Path:
             print(
                 f"Logged target {index + 1}/{total_targets} "
                 f"(ID={target['Target_ID']}, x={target['Target_X_Px']}, y={target['Target_Y_Px']}, "
-                f"vsync {timestamp_start:.6f}–{timestamp_end:.6f})"
+                f"dim {dim_start:.6f}–{dim_end:.6f}, "
+                f"bright {bright_start:.6f}–{bright_end:.6f})"
             )
 
             if index < total_targets - 1:
                 wait_blank_interval(win, INTER_TARGET_BLANK_S)
 
-        done_text = visual.TextStim(
+        done_text = make_screen_text(
             win,
-            text="Calibration complete.\n\nPress any key to exit.",
-            color=TARGET_COLOR,
-            height=28,
-            wrapWidth=screen_width * 0.75,
-            units="pix",
+            "Calibration complete.\n\nPress any key to exit.",
+            screen_width,
         )
         event.clearEvents(eventType="keyboard")
         done_text.draw()

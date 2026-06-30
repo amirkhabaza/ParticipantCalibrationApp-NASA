@@ -56,21 +56,30 @@ TARGET_COLOR = [1, 1, 1]         # bright white (PsychoPy rgb: -1..1)
 DIM_COLOR = [0.25, 0.25, 0.25]   # dim grey — visible but clearly not recording yet
 BACKGROUND_COLOR = [-1, -1, -1]  # black — [-1,-1,-1] in rgb is mid-grey
 TARGET_CONFIRM_KEY = "space"
+JOYSTICK_INDEX = 0           # default joystick device index
+JOYSTICK_CONFIRM_BUTTON = 0  # button index for click (0 = typical trigger)
 
 TEXT_HEIGHT_PX = 28
 TEXT_WRAP_FRACTION = 0.75
 PROMPT_COLOR = [0.7, 0.7, 0.7]
 
-INSTRUCTIONS_TEXT = (
-    "Eye-tracker calibration\n\n"
-    "1. A dim dot will appear.\n"
-    "2. Look at the center of the dot.\n"
-    "3. Press SPACEBAR when you are ready.\n"
-    "4. The dot will turn bright for 2 seconds. Keep looking at it.\n\n"
-    "Press SPACEBAR to begin."
-)
 
-DIM_PROMPT_TEXT = "Look at the dot, then press SPACEBAR"
+def build_instructions_text(use_joystick: bool) -> str:
+    confirm = "Press the joystick button" if use_joystick else "Press SPACEBAR"
+    return (
+        "Eye-tracker calibration\n\n"
+        "1. A dim dot will appear.\n"
+        "2. Look at the center of the dot.\n"
+        f"3. {confirm} when you are ready.\n"
+        "4. The dot will turn bright for 2 seconds. Keep looking at it.\n\n"
+        f"{confirm} to begin."
+    )
+
+
+def build_dim_prompt_text(use_joystick: bool) -> str:
+    if use_joystick:
+        return "Look at the dot, then press the joystick button"
+    return "Look at the dot, then press SPACEBAR"
 
 OUTPUT_BASENAME = "calibration_targets"
 CSV_HEADERS = [
@@ -239,6 +248,51 @@ def confirm_key_pressed(keys: list[str]) -> bool:
     return TARGET_CONFIRM_KEY in keys
 
 
+class ConfirmDevice:
+    """Participant confirm input: joystick button (default) or keyboard fallback."""
+
+    def __init__(
+        self,
+        *,
+        use_joystick: bool,
+        joystick=None,
+        button_id: int = JOYSTICK_CONFIRM_BUTTON,
+    ) -> None:
+        self.use_joystick = use_joystick
+        self.joystick = joystick
+        self.button_id = button_id
+        self._button_was_down = False
+
+    @property
+    def label(self) -> str:
+        if self.use_joystick:
+            return f"joystick button {self.button_id}"
+        return "SPACEBAR"
+
+    def sync_button_state(self) -> None:
+        """Track current button state so a held click does not re-trigger."""
+        if self.use_joystick and self.joystick is not None:
+            self._button_was_down = bool(self.joystick.getButton(self.button_id))
+        else:
+            self._button_was_down = False
+
+    def reset(self) -> None:
+        event.clearEvents(eventType="keyboard")
+        self.sync_button_state()
+
+    def poll(self) -> tuple[list[str], bool]:
+        """Poll ESC and confirm input once per frame."""
+        if self.use_joystick and self.joystick is not None:
+            keys = poll_keys("escape")
+            pressed = bool(self.joystick.getButton(self.button_id))
+            confirmed = pressed and not self._button_was_down
+            self._button_was_down = pressed
+            return keys, confirmed
+
+        keys = poll_keys("escape", TARGET_CONFIRM_KEY)
+        return keys, confirm_key_pressed(keys)
+
+
 def draw_bullseye(
     stimuli: dict,
     progress_text: visual.TextStim | None = None,
@@ -254,20 +308,21 @@ def draw_bullseye(
         progress_text.draw()
 
 
-def wait_for_spacebar(
+def wait_for_confirm(
     win: visual.Window,
     message: str,
     screen_width: int,
+    confirm_device: ConfirmDevice,
 ) -> None:
     text_stim = make_screen_text(win, message, screen_width)
-    event.clearEvents()
+    confirm_device.reset()
     while True:
         text_stim.draw()
         win.flip()
-        keys = poll_keys("escape", TARGET_CONFIRM_KEY)
+        keys, confirmed = confirm_device.poll()
         abort_if_escape(keys)
-        if confirm_key_pressed(keys):
-            event.clearEvents(eventType="keyboard")
+        if confirmed:
+            confirm_device.reset()
             break
 
 
@@ -291,6 +346,70 @@ def get_screen_index() -> int:
         except ValueError:
             pass
     return SCREEN_INDEX
+
+
+def parse_int_cli(flag: str, default: int) -> int:
+    """Parse ``--flag N`` or ``--flag=N`` from sys.argv."""
+    for i, arg in enumerate(sys.argv):
+        if arg.startswith(f"{flag}="):
+            try:
+                return int(arg.split("=", 1)[1])
+            except ValueError:
+                pass
+        elif arg == flag and i + 1 < len(sys.argv):
+            try:
+                return int(sys.argv[i + 1])
+            except ValueError:
+                pass
+    return default
+
+
+def use_keyboard_input() -> bool:
+    return "--keyboard" in sys.argv
+
+
+def get_joystick_index() -> int:
+    env_val = os.environ.get("CALIBRATION_JOYSTICK") or os.environ.get("JOYSTICK_INDEX")
+    if env_val is not None:
+        try:
+            return int(env_val)
+        except ValueError:
+            pass
+    return parse_int_cli("--joystick", parse_int_cli("--joystick-index", JOYSTICK_INDEX))
+
+
+def get_joystick_button() -> int:
+    env_val = os.environ.get("CALIBRATION_JOYSTICK_BUTTON") or os.environ.get("JOYSTICK_BUTTON")
+    if env_val is not None:
+        try:
+            return int(env_val)
+        except ValueError:
+            pass
+    return parse_int_cli("--joystick-button", JOYSTICK_CONFIRM_BUTTON)
+
+
+def create_confirm_device() -> ConfirmDevice:
+    if use_keyboard_input():
+        print("Confirm input: SPACEBAR (--keyboard)")
+        return ConfirmDevice(use_joystick=False)
+
+    from psychopy.hardware import joystick
+
+    index = get_joystick_index()
+    button_id = get_joystick_button()
+    try:
+        joy = joystick.Joystick(index)
+        name = getattr(joy, "name", None) or f"joystick {index}"
+        num_buttons = joy.getNumButtons()
+        if button_id < 0 or button_id >= num_buttons:
+            raise ValueError(
+                f"Button {button_id} out of range; joystick has {num_buttons} button(s) (0–{num_buttons - 1})"
+            )
+        print(f"Confirm input: {name}, button {button_id} ({num_buttons} button(s) total)")
+        return ConfirmDevice(use_joystick=True, joystick=joy, button_id=button_id)
+    except Exception as exc:
+        print(f"Warning: could not open joystick {index} ({exc}). Falling back to SPACEBAR.")
+        return ConfirmDevice(use_joystick=False)
 
 
 def create_calibration_window() -> visual.Window:
@@ -350,6 +469,7 @@ def wait_for_target_confirm(
     auto_confirm_after_s: float | None = None,
     dim_prompt_text: visual.TextStim | None = None,
     epoch_offset: float,
+    confirm_device: ConfirmDevice,
 ) -> tuple[float, float]:
     """Show a dim target until confirm; return vsync times for the dim phase."""
     set_bullseye_position(stimuli, target["pos"])
@@ -357,7 +477,7 @@ def wait_for_target_confirm(
     if show_circles:
         stimuli["ring"].radius = RING_START_RADIUS_PX
 
-    event.clearEvents(eventType="keyboard")
+    confirm_device.reset()
     clock = core.Clock()
     dim_start: float | None = None
     dim_end: float | None = None
@@ -372,12 +492,12 @@ def wait_for_target_confirm(
         if dim_start is None:
             dim_start = flip_unix
         dim_end = flip_unix
-        keys = poll_keys("escape", TARGET_CONFIRM_KEY)
+        keys, confirmed = confirm_device.poll()
         abort_if_escape(keys)
         if auto_confirm_after_s is not None and clock.getTime() >= auto_confirm_after_s:
             break
-        if confirm_key_pressed(keys):
-            event.clearEvents(eventType="keyboard")
+        if confirmed:
+            confirm_device.reset()
             break
 
     if dim_start is None or dim_end is None:
@@ -397,6 +517,7 @@ def present_shrinking_bullseye(
     epoch_offset: float,
     auto_confirm_after_s: float | None = None,
     dim_prompt_text: visual.TextStim | None = None,
+    confirm_device: ConfirmDevice,
 ) -> tuple[float, float, float, float]:
     dim_start, dim_end = wait_for_target_confirm(
         win,
@@ -407,6 +528,7 @@ def present_shrinking_bullseye(
         auto_confirm_after_s=auto_confirm_after_s,
         dim_prompt_text=dim_prompt_text,
         epoch_offset=epoch_offset,
+        confirm_device=confirm_device,
     )
 
     ring = stimuli["ring"]
@@ -469,6 +591,7 @@ def run_calibration() -> Path:
         )
 
         bullseye = build_bullseye_stimuli(win)
+        confirm_device = create_confirm_device()
 
         auto_mode = "--auto" in sys.argv
         show_circles = circles_enabled()
@@ -477,7 +600,7 @@ def run_calibration() -> Path:
         if not auto_mode:
             dim_prompt_text = make_screen_text(
                 win,
-                DIM_PROMPT_TEXT,
+                build_dim_prompt_text(confirm_device.use_joystick),
                 screen_width,
                 color=PROMPT_COLOR,
                 pos=(0, -(screen_height / 2.0) + 56),
@@ -485,14 +608,19 @@ def run_calibration() -> Path:
         print(f"Show circles: {show_circles}")
         print(
             f"Gated targets: dim until "
-            f"{'auto-confirm' if auto_mode else TARGET_CONFIRM_KEY!r}, "
+            f"{'auto-confirm' if auto_mode else confirm_device.label}, "
             f"then bright for {BRIGHT_DURATION_S}s"
         )
         if auto_mode:
             print("Auto mode: skipping instructions and exit prompt.")
             event.clearEvents(eventType="keyboard")
         else:
-            wait_for_spacebar(win, INSTRUCTIONS_TEXT, screen_width)
+            wait_for_confirm(
+                win,
+                build_instructions_text(confirm_device.use_joystick),
+                screen_width,
+                confirm_device,
+            )
 
         targets = generate_grid_targets(screen_width, screen_height)
         if len(targets) != 9:
@@ -520,6 +648,7 @@ def run_calibration() -> Path:
                 epoch_offset=epoch_offset,
                 auto_confirm_after_s=auto_confirm_after_s,
                 dim_prompt_text=dim_prompt_text,
+                confirm_device=confirm_device,
             )
 
             rows.append(

@@ -7,6 +7,9 @@ __pycache__/
 # Session output (regenerated each run)
 Frontend/output/
 
+# Local scratch calibration file
+calibration_enginedub.py
+
 # OS
 .DS_Store
 Thumbs.db

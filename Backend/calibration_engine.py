@@ -225,4 +225,86 @@ def build_calibration_points(
             points.append(point)
     return points
 
+# Once point extraction works, search offset/trim combinations and keep the one that minimizes pre-fit error across calibration targets. 
+def mean_pre_fit_error(points: list[dict]) -> float:
+    if not points:
+        return float("inf")
+    return float(np.mean([p["error_before_px"] for p in points]))
 
+def optimize_session_alignment(
+    gaze_df: pd.DataFrame,
+    targets_df: pd.DataFrame,
+) -> tuple[float, float, str, float]:
+
+  """
+    Grid-search epoch offset (relative to dim_min) and saccade trim.
+
+    Returns (epoch_offset, saccade_trim_s, strategy_label, mean_pre_fit_error_px).
+    """
+    base_offset = estimate_epoch_offset_dim_min(gaze_df, targets_df)
+    best_offset = base_offset
+    best_trim = SACCADE_TRIM_S
+    best_err = float("inf")
+    best_label = "dim_min"
+
+    candidates: list[tuple[float, float, str]] = []
+    for delta in np.arange(
+        OFFSET_SEARCH_MIN_S, OFFSET_SEARCH_MAX_S + 1e-9, OFFSET_SEARCH_STEP_S
+    ):
+        for trim in TRIM_CANDIDATES:
+            label = f"grid_d{delta:+.2f}_t{trim:.1f}"
+            candidates.append((base_offset + float(delta), float(trim), label))
+
+    # Named strategies as grid starting points / fallbacks
+    candidates.extend([
+        (base_offset, 0.2, "dim_min"),
+        (estimate_epoch_offset_bright_first(gaze_df, targets_df), 0.2, "bright_first"),
+        (base_offset - 5.0, 0.2, "dim_min_minus_5s"),
+    ])
+
+    for offset, trim, label in candidates:
+        points = build_calibration_points(gaze_df, targets_df, offset, trim)
+        if len(points) < MIN_AFFINE_POINTS:
+            continue
+        err = mean_pre_fit_error(points)
+        if err < best_err:
+            best_err = err
+            best_offset = offset
+            best_trim = trim
+            best_label = label
+
+    return best_offset, best_trim, best_label, best_err
+
+
+def process_trial(trial_id: int) -> dict:
+    gaze_df, targets_df = load_trial_data(trial_id)
+    if targets_df.empty or len(targets_df) < MIN_AFFINE_POINTS:
+        raise ValueError(f"Trial {trial_id}: need at least {MIN_AFFINE_POINTS} target rows.")
+
+    epoch_offset, saccade_trim_s, align_strategy, align_mean_err = optimize_session_alignment(
+        gaze_df, targets_df
+    )
+    screen_width = int(targets_df.iloc[0]["Screen_Width"])
+    screen_height = int(targets_df.iloc[0]["Screen_Height"])
+    calibration_points = build_calibration_points(
+        gaze_df, targets_df, epoch_offset, saccade_trim_s
+    )
+    if len(calibration_points) < MIN_AFFINE_POINTS:
+        raise ValueError(f"Trial {trial_id}: insufficient valid calibration windows.")
+
+    obs_xy = np.array([[p["obs_x_px"], p["obs_y_px"]] for p in calibration_points])
+    true_xy = np.array([[p["true_x_px"], p["true_y_px"]] for p in calibration_points])
+
+    return {
+        "trial": trial_id,
+        "screen_width": screen_width,
+        "screen_height": screen_height,
+        "epoch_offset": epoch_offset,
+        "saccade_trim_s": saccade_trim_s,
+        "align_strategy": align_strategy,
+        "align_mean_error_px": align_mean_err,
+        "n_calibration_points": len(calibration_points),
+        "calibration_points": calibration_points,
+        "obs_xy": obs_xy,
+        "true_xy": true_xy,
+    }

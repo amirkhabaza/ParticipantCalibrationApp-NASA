@@ -79,4 +79,150 @@ def gaze2d_to_pixels(
 ) -> tuple[float | np.ndarray, float | np.ndarray]:
     return gaze2d_x * screen_width, gaze2d_y * screen_height
 
+# Add optional learning extras: Pre-window velocity/amplitude and per-sample
+# output columns once the core calibration pipeline already works.
+def compute_window_velocity_y(window_df: pd.DataFrame, screen_height: int) -> float:
+    """Median absolute vertical gaze velocity (px/s) during a calibration window."""
+    if len(window_df) < 2:
+        return 0.0
+    t = window_df["timestamp"].to_numpy()
+    y_px = window_df["gaze2d_y"].to_numpy() * screen_height
+    dt = np.diff(t)
+    dt = np.where(dt <= 0, np.nan, dt)
+    velocity_y = np.abs(np.diff(y_px) / dt)
+    return float(np.nanmedian(velocity_y))
+
+def compute_window_amplitude_x(window_df: pd.DataFrame, screen_width: int) -> float:
+    """Peak-to-peak horizontal gaze displacement (px) during a calibration window."""
+    x_px = window_df["gaze2d_x"].to_numpy() * screen_width
+    return float(np.max(x_px) - np.min(x_px))
+
+def add_kinematics_columns(
+    gaze_df: pd.DataFrame,
+    screen_width: int,
+    screen_height: int,
+    *,
+    use_corrected: bool = False,
+) -> pd.DataFrame:
+    """
+    Add per-sample Velocity_Y (px/s) and Amplitude_X (px) columns.
+
+    Velocity_Y: |dY/dt| from corrected gaze Y when available.
+    Amplitude_X: rolling ~0.5 s peak-to-peak of gaze X (fixation stability).
+    """
+    df = gaze_df.sort_values("timestamp").copy()
+    if use_corrected and "Corrected_Gaze_X" in df.columns:
+        x = df["Corrected_Gaze_X"].to_numpy()
+        y = df["Corrected_Gaze_Y"].to_numpy()
+    else:
+        x, y = gaze2d_to_pixels(
+            df["gaze2d_x"].to_numpy(), df["gaze2d_y"].to_numpy(), screen_width, screen_height
+        )
+
+    dt = df["timestamp"].diff().to_numpy()
+    dy = np.diff(y, prepend=y[0])
+    velocity_y = np.zeros(len(df))
+    valid = dt > 0
+    velocity_y[valid] = np.abs(dy[valid] / dt[valid])
+    if len(df) > 1:
+        velocity_y[0] = velocity_y[1]
+
+    # ~0.5 s rolling window at ~50 Hz ≈ 25 samples
+    roll = max(3, int(round(0.5 / np.median(dt[dt > 0]))))
+    x_series = pd.Series(x)
+    amplitude_x = (
+        x_series.rolling(roll, center=True, min_periods=1).max()
+        - x_series.rolling(roll, center=True, min_periods=1).min()
+    ).to_numpy()
+
+    df["Velocity_Y"] = velocity_y
+    df["Amplitude_X"] = amplitude_x
+    return df
+
+
+def extract_calibration_point(
+    gaze_df: pd.DataFrame,
+    target_row: pd.Series,
+    epoch_offset: float,
+    screen_width: int,
+    screen_height: int,
+    saccade_trim_s: float = SACCADE_TRIM_S,
+) -> dict | None:
+    """Extract one calibration pair; return None if window is empty."""
+    window_start = (
+        unix_to_tobii_time(target_row["Bright_Timestamp_Start"], epoch_offset)
+        + saccade_trim_s
+    )
+    window_end = unix_to_tobii_time(target_row["Bright_Timestamp_End"], epoch_offset)
+
+    if window_end <= window_start:
+        return None
+
+    try:
+        window_df = slice_calibration_window(
+            gaze_df,
+            bright_start_unix=target_row["Bright_Timestamp_Start"],
+            bright_end_unix=target_row["Bright_Timestamp_End"],
+            epoch_offset=epoch_offset,
+            saccade_trim_s=saccade_trim_s,
+        )
+    except ValueError:
+        return None
+
+    obs_gaze2d_x, obs_gaze2d_y = compute_observed_median(window_df)
+    obs_x, obs_y = gaze2d_to_pixels(
+        obs_gaze2d_x, obs_gaze2d_y, screen_width, screen_height
+    )
+    true_x = float(target_row["Target_X_Px"])
+    true_y = float(target_row["Target_Y_Px"])
+    std_x = float(window_df["gaze2d_x"].std())
+    std_y = float(window_df["gaze2d_y"].std())
+    n_samples = len(window_df)
+    error_before_px = float(np.hypot(true_x - obs_x, true_y - obs_y))
+    velocity_y = compute_window_velocity_y(window_df, screen_height)
+    amplitude_x = compute_window_amplitude_x(window_df, screen_width)
+
+    flags: list[str] = []
+    if n_samples < MIN_GAZE_SAMPLES:
+        flags.append("low_n")
+    if std_x > MAX_GAZE_STD or std_y > MAX_GAZE_STD:
+        flags.append("unstable")
+
+    return {
+        "target_id": int(target_row["Target_ID"]),
+        "true_x_px": true_x,
+        "true_y_px": true_y,
+        "obs_gaze2d_x": obs_gaze2d_x,
+        "obs_gaze2d_y": obs_gaze2d_y,
+        "obs_x_px": float(obs_x),
+        "obs_y_px": float(obs_y),
+        "error_before_px": error_before_px,
+        "std_gaze2d_x": std_x,
+        "std_gaze2d_y": std_y,
+        "velocity_y": velocity_y,
+        "amplitude_x": amplitude_x,
+        "n_gaze_samples": n_samples,
+        "window_start_tobii": window_start,
+        "window_end_tobii": window_end,
+        "quality_flags": flags,
+    }
+
+
+def build_calibration_points(
+    gaze_df: pd.DataFrame,
+    targets_df: pd.DataFrame,
+    epoch_offset: float,
+    saccade_trim_s: float,
+) -> list[dict]:
+    screen_width = int(targets_df.iloc[0]["Screen_Width"])
+    screen_height = int(targets_df.iloc[0]["Screen_Height"])
+    points: list[dict] = []
+    for _, target_row in targets_df.iterrows():
+        point = extract_calibration_point(
+            gaze_df, target_row, epoch_offset, screen_width, screen_height, saccade_trim_s
+        )
+        if point is not None:
+            points.append(point)
+    return points
+
 

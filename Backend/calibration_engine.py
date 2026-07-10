@@ -308,3 +308,49 @@ def process_trial(trial_id: int) -> dict:
         "obs_xy": obs_xy,
         "true_xy": true_xy,
     }
+
+    # Start with the simplest observed→true affine transform before adding any outlier handling. This is the core milestone.
+
+def fit_affine_2d(obs_xy: np.ndarray, true_xy: np.ndarray) -> np.ndarray:
+    if len(obs_xy) < MIN_AFFINE_POINTS:
+        raise ValueError(f"Need at least {MIN_AFFINE_POINTS} point pairs.")
+    n = len(obs_xy)
+    design = np.column_stack([obs_xy[:, 0], obs_xy[:, 1], np.ones(n)])
+    params_x, _, _, _ = np.linalg.lstsq(design, true_xy[:, 0], rcond=None)
+    params_y, _, _, _ = np.linalg.lstsq(design, true_xy[:, 1], rcond=None)
+    return np.array([
+        [params_x[0], params_x[1], params_x[2]],
+        [params_y[0], params_y[1], params_y[2]],
+        [0.0, 0.0, 1.0],
+    ])
+
+def apply_affine_to_points(xy: np.ndarray, matrix: np.ndarray) -> np.ndarray:
+    homogeneous = np.hstack([xy, np.ones((len(xy), 1))]).T
+    return (matrix @ homogeneous)[:2].T
+
+def compute_mse_points(true_xy: np.ndarray, pred_xy: np.ndarray) -> float:
+    errors = true_xy - pred_xy
+    return float(np.mean(np.sum(errors**2, axis=1)))
+
+def is_translation_only(matrix: np.ndarray, tol: float = 1e-6) -> bool:
+    return (
+        abs(matrix[0, 0] - 1.0) < tol
+        and abs(matrix[1, 1] - 1.0) < tol
+        and abs(matrix[0, 1]) < tol
+        and abs(matrix[1, 0]) < tol
+    )
+
+def format_affine_matrix(matrix: np.ndarray) -> str:
+    rows = [
+        f"[{matrix[0, 0]:8.4f}  {matrix[0, 1]:8.4f}  {matrix[0, 2]:8.2f}]",
+        f"[{matrix[1, 0]:8.4f}  {matrix[1, 1]:8.4f}  {matrix[1, 2]:8.2f}]",
+        f"[{matrix[2, 0]:8.4f}  {matrix[2, 1]:8.4f}  {matrix[2, 2]:8.4f}]",
+    ]
+    return "\n".join(f"    {row}" for row in rows)
+
+def design_matrix_condition_number(obs_xy: np.ndarray) -> float:
+    """Condition number of the affine design matrix (lower is better)."""
+    n = len(obs_xy)
+    design = np.column_stack([obs_xy[:, 0], obs_xy[:, 1], np.ones(n)])
+    return float(np.linalg.cond(design))
+

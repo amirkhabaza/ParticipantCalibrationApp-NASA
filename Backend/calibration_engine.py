@@ -354,3 +354,127 @@ def design_matrix_condition_number(obs_xy: np.ndarray) -> float:
     design = np.column_stack([obs_xy[:, 0], obs_xy[:, 1], np.ones(n)])
     return float(np.linalg.cond(design))
 
+# After the basic affine fit works, make it practical by excluding calibration points that do not agree with the global transform.
+def fit_affine_iterative(
+    obs_xy: np.ndarray,
+    true_xy: np.ndarray,
+    calibration_points: list[dict],
+    *,
+    max_after_error_px: float = MAX_AFTER_ERROR_PX,
+    protect_before_px: float = PROTECT_BEFORE_PX,
+    protect_max_after_px: float = PROTECT_MAX_AFTER_PX,
+) -> tuple[np.ndarray, list[int], list[int], list[str]]:
+    """
+    Fit affine on all points, then iteratively drop worst post-fit outliers.
+
+    Points with before-error < protect_before_px are kept unless their
+    after-error exceeds protect_max_after_px.
+    """
+    n = len(obs_xy)
+    fit_indices = list(range(n))
+    exclusion_log: list[str] = ["start: all points in fit set"]
+
+    while len(fit_indices) >= MIN_AFFINE_POINTS:
+        obs_fit = obs_xy[fit_indices]
+        matrix = fit_affine_2d(obs_fit, true_xy[fit_indices])
+        pred_all = apply_affine_to_points(obs_xy, matrix)
+        errors = np.sqrt(np.sum((true_xy - pred_all) ** 2, axis=1))
+
+        if all(errors[i] <= max_after_error_px for i in fit_indices):
+            break
+
+        # Worst point among current fit set
+        worst_i = max(fit_indices, key=lambda i: errors[i])
+        worst_err = errors[worst_i]
+        worst_before = calibration_points[worst_i]["error_before_px"]
+        worst_id = calibration_points[worst_i]["target_id"]
+
+        if worst_err <= max_after_error_px:
+            break
+
+        # Protect low-before points unless after-error is clearly bad
+        if worst_before < protect_before_px and worst_err < protect_max_after_px:
+            exclusion_log.append(
+                f"protected ID {worst_id} (before={worst_before:.0f}px, "
+                f"after={worst_err:.0f}px)"
+            )
+            break
+
+        if len(fit_indices) <= MIN_AFFINE_POINTS:
+            break
+
+        fit_indices.remove(worst_i)
+        exclusion_log.append(
+            f"dropped ID {worst_id} (before={worst_before:.0f}px, "
+            f"after={worst_err:.0f}px)"
+        )
+
+    excluded_indices = [i for i in range(n) if i not in fit_indices]
+    final_matrix = fit_affine_2d(obs_xy[fit_indices], true_xy[fit_indices])
+    return final_matrix, fit_indices, excluded_indices, exclusion_log
+
+
+def apply_step2(trial_result: dict) -> dict:
+    obs_xy = trial_result["obs_xy"]
+    true_xy = trial_result["true_xy"]
+    points = trial_result["calibration_points"]
+
+    affine_matrix, fit_indices, excluded_indices, exclusion_log = fit_affine_iterative(
+        obs_xy, true_xy, points
+    )
+
+    final_fit_mask = np.zeros(len(obs_xy), dtype=bool)
+    final_fit_mask[fit_indices] = True
+
+    corrected_xy = apply_affine_to_points(obs_xy, affine_matrix)
+    per_point_error = np.sqrt(np.sum((true_xy - corrected_xy) ** 2, axis=1))
+
+    mse_before = compute_mse_points(true_xy, obs_xy)
+    mse_after_all = compute_mse_points(true_xy, corrected_xy)
+    mse_after_fit = compute_mse_points(true_xy[final_fit_mask], corrected_xy[final_fit_mask])
+    mean_err_before_fit = float(np.mean([points[i]["error_before_px"] for i in fit_indices]))
+    mean_err_after_fit = float(np.mean(per_point_error[final_fit_mask]))
+    worst_fit_idx = max(fit_indices, key=lambda i: per_point_error[i])
+    worst_after = float(per_point_error[worst_fit_idx])
+    worst_target_id = points[worst_fit_idx]["target_id"]
+    cond_num = design_matrix_condition_number(obs_xy[fit_indices])
+
+    exclusion_reasons: dict[int, str] = {}
+    for i in excluded_indices:
+        p = points[i]
+        exclusion_reasons[p["target_id"]] = (
+            f"post-fit outlier (before={p['error_before_px']:.0f}px, "
+            f"after={per_point_error[i]:.0f}px)"
+        )
+
+    corrected_points = []
+    for i, (point, corr) in enumerate(zip(points, corrected_xy)):
+        corrected_points.append({
+            **point,
+            "corrected_x_px": float(corr[0]),
+            "corrected_y_px": float(corr[1]),
+            "error_after_px": float(per_point_error[i]),
+            "used_for_fit": i in fit_indices,
+            "exclusion_reason": exclusion_reasons.get(point["target_id"], ""),
+        })
+
+    return {
+        **trial_result,
+        "affine_matrix": affine_matrix,
+        "corrected_xy": corrected_xy,
+        "corrected_points": corrected_points,
+        "fit_indices": fit_indices,
+        "excluded_indices": excluded_indices,
+        "exclusion_log": exclusion_log,
+        "exclusion_reasons": exclusion_reasons,
+        "fit_method": f"iterative post-fit ({len(fit_indices)} points)",
+        "design_condition_number": cond_num,
+        "mse_before": mse_before,
+        "mse_after": mse_after_all,
+        "mse_after_fit_set": mse_after_fit,
+        "mean_error_before_fit_set": mean_err_before_fit,
+        "mean_error_after_fit_set": mean_err_after_fit,
+        "worst_target_id": worst_target_id,
+        "worst_after_px": worst_after,
+        "is_translation_only": is_translation_only(affine_matrix),
+    }

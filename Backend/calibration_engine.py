@@ -478,3 +478,63 @@ def apply_step2(trial_result: dict) -> dict:
         "worst_after_px": worst_after,
         "is_translation_only": is_translation_only(affine_matrix),
     }
+
+# These helps are useful early because they let you run the current stage of the pipeline trial-by-trial and inspect intermediate output. 
+def run_step1() -> list[dict]:
+    results: list[dict] = []
+    for trial_id in range(1, NUM_TRIALS + 1):
+        print(f"Processing trial {trial_id}...")
+        trial_result = process_trial(trial_id)
+        results.append(trial_result)
+        print(
+            f"  Alignment: {trial_result['align_strategy']} | "
+            f"offset={trial_result['epoch_offset']:.3f} | "
+            f"trim={trial_result['saccade_trim_s']:.1f}s | "
+            f"mean pre-fit err={trial_result['align_mean_error_px']:.1f}px"
+        )
+    print(f"  Extracted {trial_result['n_calibration_points']} calibration point(s)")
+    return results
+
+def run_step2(step1_results: list[dict]) -> list[dict]:
+    print("\n" + "=" * 60)
+    print("STEP 2: 2D Affine Calibration (aligned + robust fit)")
+    print("=" * 60)
+
+    step2_results: list[dict] = []
+    for trial in step1_results:
+        result = apply_step2(trial)
+        step2_results.append(result)
+
+        print(f"\nTrial {result['trial']} ({result['n_calibration_points']} points)")
+        print(f"  Alignment:  {result['align_strategy']}  trim={result['saccade_trim_s']:.1f}s")
+        print(f"  Fit method: {result['fit_method']}")
+        print(f"  Condition #: {result['design_condition_number']:.1f}")
+        print(f"  Fit set:    {len(result['fit_indices'])}  excluded: {len(result['excluded_indices'])}")
+        for line in result["exclusion_log"]:
+            print(f"    log: {line}")
+        if result["excluded_indices"]:
+            for tid, reason in result["exclusion_reasons"].items():
+                print(f"  Excluded ID {tid}: {reason}")
+        print("  Affine matrix:")
+        print(format_affine_matrix(result["affine_matrix"]))
+        print(f"  MSE before (all):        {result['mse_before']:.2f} px²")
+        print(f"  MSE after (all):         {result['mse_after']:.2f} px²")
+        print(f"  MSE after (fit set):     {result['mse_after_fit_set']:.2f} px²")
+        print(
+            f"  Mean error fit set:      {result['mean_error_before_fit_set']:.1f} → "
+            f"{result['mean_error_after_fit_set']:.1f} px"
+        )
+        print(
+            f"  Worst fit target:        ID {result['worst_target_id']} "
+            f"({result['worst_after_px']:.1f} px after)"
+        )
+        for p in result["corrected_points"]:
+            tag = "fit" if p["used_for_fit"] else "excluded"
+            flags = ",".join(p.get("quality_flags", [])) or "ok"
+            print(
+                f"    ID {p['target_id']:1d} [{tag:8s}] flags={flags:12s} "
+                f"before={p['error_before_px']:6.1f}px  after={p['error_after_px']:6.1f}px  "
+                f"vel_y={p['velocity_y']:6.1f}px/s  amp_x={p['amplitude_x']:5.1f}px"
+            )
+    return step2_results
+

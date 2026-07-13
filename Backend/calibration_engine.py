@@ -564,3 +564,118 @@ def export_corrected_gaze(corrected_df: pd.DataFrame, trial_id: int) -> Path:
     output_path = OUTPUT_DIR / f"gazedata{trial_id}_corrected.csv"
     corrected_df.to_csv(output_path, index=False)
     return output_path
+
+# Add plots only after the numeric pipeline is working, so the figure becomes a validation tool rather than a debugging distraction.
+
+def plot_affine_calibration_summary(step2_results: list[dict]) -> Path:
+    fig, axes = plt.subplots(
+        3, NUM_TRIALS, figsize=(16, 12), constrained_layout=True,
+        gridspec_kw={"height_ratios": [2.2, 1, 1]},
+    )
+    if NUM_TRIALS == 1:
+        axes = axes.reshape(3, 1)
+
+    for col, result in enumerate[dict](step2_results):
+        ax = axes[0, col]
+        ax_err = axes[1, col]
+        ax_kin = axes[2, col]
+        points = result["corrected_points"]
+        screen_w, screen_h = result["screen_width"], result["screen_height"]
+        fit_pts = [p for p in points if p["used_for_fit"]]
+        excl_pts = [p for p in points if not p["used_for_fit"]]
+
+         def _draw(pts: list[dict], obs_c: str, corr_edge: str, obs_label: str, corr_label: str) -> None:
+            if not pts:
+               return
+            ax.scatter([p["true_x_px"] for p in pts], [p["true_y_px"] for p in pts],
+                       marker="*", s=220, c="green", edgecolors="black", linewidths=0.5, zorder=5)
+            ax.scatter([p["obs_x_px"] for p in pts], [p["obs_y_px"] for p in pts],
+                       marker="o", s=55, c=obs_c, edgecolors="black", linewidths=0.5,
+                       label=obs_label, zorder=4)
+            ax.scatter([p["corrected_x_px"] for p in pts], [p["corrected_y_px"] for p in pts],
+                       marker="o", s=55, facecolors="none", edgecolors=corr_edge,
+                       linewidths=1.5, label=corr_label, zorder=6)
+            for p in pts:
+                ax.plot([p["obs_x_px"], p["true_x_px"]], [p["obs_y_px"], p["true_y_px"]],
+                        ":", color="gray", linewidth=1, alpha=0.6)
+                ax.plot([p["corrected_x_px"], p["true_x_px"]], [p["corrected_y_px"], p["true_y_px"]],
+                        "--", color="blue", linewidth=1, alpha=0.7)
+                ax.annotate(str(p["target_id"]), (p["true_x_px"], p["true_y_px"]),
+                            textcoords="offset points", xytext=(4, 4), fontsize=7, color="darkgreen")
+
+        _draw(fit_pts, "red", "blue", "Original (fit)", "Corrected (fit)")
+        _draw(excl_pts, "orange", "cyan", "Original (excl)", "Corrected (excl)")
+        if fit_pts:
+            ax.scatter([], [], marker="*", s=220, c="green", edgecolors="black", label="True Target")
+
+        ax.set_xlim(0, screen_w)
+        ax.set_ylim(screen_h, 0)
+        ax.set_xlabel("X (pixels)")
+        ax.set_ylabel("Y (pixels)")
+        ax.set_title(
+            f"Trial {result['trial']} — {len(fit_pts)} fit / {len(excl_pts)} excl\n"
+            f"{result['align_strategy']} | trim {result['saccade_trim_s']:.1f}s"
+        )
+        ax.text(
+            0.02, 0.02,
+            f"MSE fit: {result['mse_after_fit_set']:.0f} px²\n"
+            f"Mean err: {result['mean_error_before_fit_set']:.0f}→"
+            f"{result['mean_error_after_fit_set']:.0f} px",
+            transform=ax.transAxes, fontsize=7, va="bottom",
+            bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
+        )
+        ax.set_aspect("equal", adjustable="box")
+        ax.grid(True, alpha=0.3)
+
+        ids = [p["target_id"] for p in points]
+        before = [p["error_before_px"] for p in points]
+        after = [p["error_after_px"] for p in points]
+        x = np.arange(len(ids))
+        ax_err.bar(x - 0.15, before, width=0.3, label="Before", color="salmon")
+        ax_err.bar(x + 0.15, after, width=0.3, label="After", color="steelblue")
+        ax_err.set_xticks(x)
+        ax_err.set_xticklabels([str(i) for i in ids], fontsize=7)
+        ax_err.set_ylabel("Error (px)")
+        ax_err.set_title("Per-target error")
+        ax_err.legend(fontsize=7)
+        ax_err.grid(True, alpha=0.3, axis="y")
+
+        vel_y = [p["velocity_y"] for p in points]
+        amp_x = [p["amplitude_x"] for p in points]
+        fit_mask = [p["used_for_fit"] for p in points]
+
+        (vel_line,) = ax_kin.plot(
+            x, vel_y, "o-", color="purple", linewidth=1.5, markersize=6, label="Vel Y (px/s)"
+        )
+        ax_kin.set_ylabel("Vel Y (px/s)", color="purple")
+        ax_kin.tick_params(axis="y", labelcolor="purple")
+        ax_kin.set_xticks(x)
+        ax_kin.set_xticklabels([str(i) for i in ids], fontsize=7)
+        ax_kin.set_xlabel("Target ID")
+        ax_kin.grid(True, alpha=0.3)
+
+        ax_amp = ax_kin.twinx()
+        (amp_line,) = ax_amp.plot(
+            x, amp_x, "s-", color="teal", linewidth=1.5, markersize=6, label="Amp X (px)"
+        )
+        ax_amp.set_ylabel("Amp X (px)", color="teal")
+        ax_amp.tick_params(axis="y", labelcolor="teal")
+
+        for i, (is_fit, p) in enumerate(zip(fit_mask, points)):
+            if not is_fit:
+                ax_kin.plot(i, p["velocity_y"], "o", mfc="none", mec="purple", markersize=9, markeredgewidth=1.5)
+                ax_amp.plot(i, p["amplitude_x"], "s", mfc="none", mec="teal", markersize=9, markeredgewidth=1.5)
+
+        ax_kin.set_title("Per-target kinematics (bright window)")
+        ax_kin.legend(handles=[vel_line, amp_line], loc="upper right", fontsize=7)
+
+    axes[0, 0].legend(loc="lower right", fontsize=7)
+    fig.suptitle("2D Affine Calibration (auto-aligned + robust fit)", fontsize=14)
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    plot_path = OUTPUT_DIR / "drift_correction_summary.png"
+    fig.savefig(plot_path, dpi=150)
+    plt.close(fig)
+    return plot_path
+
+    

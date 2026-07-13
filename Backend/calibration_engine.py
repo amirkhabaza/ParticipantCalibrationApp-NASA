@@ -538,3 +538,29 @@ def run_step2(step1_results: list[dict]) -> list[dict]:
             )
     return step2_results
 
+# Once the matrix is trustworthy, transform every gaze sample and write the corrected CSV for downstream analysis.  
+def apply_global_correction(
+    gaze_df: pd.DataFrame,
+    affine_matrix: np.ndarray,
+    screen_width: int,
+    screen_height: int,
+) -> pd.DataFrame:
+    corrected_df = gaze_df.copy()
+    obs_x, obs_y = gaze2d_to_pixels(
+        corrected_df["gaze2d_x"].to_numpy(),
+        corrected_df["gaze2d_y"].to_numpy(),
+        screen_width,
+        screen_height,
+)
+    corrected_xy = apply_affine_to_points(np.column_stack([obs_x, obs_y]), affine_matrix)
+    corrected_df["Corrected_Gaze_X"] = corrected_xy[:, 0]
+    corrected_df["Corrected_Gaze_Y"] = corrected_xy[:, 1]
+    return add_kinematics_columns(
+        corrected_df, screen_width, screen_height, use_corrected=True
+    )
+
+def export_corrected_gaze(corrected_df: pd.DataFrame, trial_id: int) -> Path:
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = OUTPUT_DIR / f"gazedata{trial_id}_corrected.csv"
+    corrected_df.to_csv(output_path, index=False)
+    return output_path

@@ -5,8 +5,6 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import time
-import json
 
 BACKEND_DIR = Path(__file__).resolve().parent
 GAZE_DIR = BACKEND_DIR / "data" / "input"
@@ -19,7 +17,7 @@ PREFERRED_FIT_POINTS = 6
 MIN_GAZE_SAMPLES = 50
 MAX_GAZE_STD = 0.05
 
-#Grid search: shift epoch offset relative to dim_min anchor (seconds)
+# Grid search: shift epoch offset relative to dim_min anchor (seconds)
 OFFSET_SEARCH_MIN_S = -10.0
 OFFSET_SEARCH_MAX_S = 2.0
 OFFSET_SEARCH_STEP_S = 0.25
@@ -30,12 +28,12 @@ PROTECT_BEFORE_PX = 100.0
 PROTECT_MAX_AFTER_PX = 150.0
 SACCADE_TRIM_S = 0.2
 
-# Implement paths/constants, file loading, and a minimal runnable entrypoint. 
 
 def load_trial_data(trial_id: int) -> tuple[pd.DataFrame, pd.DataFrame]:
     gaze_path = GAZE_DIR / f"gazedata{trial_id}.csv"
     targets_path = TARGETS_DIR / f"calibration_targets{trial_id}.csv"
     return pd.read_csv(gaze_path), pd.read_csv(targets_path)
+
 
 # Implement the clock bridge between Unix epoch timestamps from the frontend and session-relative Tobii timestamps from the gaze CSV.
 
@@ -283,6 +281,7 @@ def optimize_session_alignment(
     return best_offset, best_trim, best_label, best_err
 
 
+
 def process_trial(trial_id: int) -> dict:
     gaze_df, targets_df = load_trial_data(trial_id)
     if targets_df.empty or len(targets_df) < MIN_AFFINE_POINTS:
@@ -316,7 +315,6 @@ def process_trial(trial_id: int) -> dict:
         "true_xy": true_xy,
     }
 
-    # Start with the simplest observed→true affine transform before adding any outlier handling. This is the core milestone.
 
 def fit_affine_2d(obs_xy: np.ndarray, true_xy: np.ndarray) -> np.ndarray:
     if len(obs_xy) < MIN_AFFINE_POINTS:
@@ -486,7 +484,29 @@ def apply_step2(trial_result: dict) -> dict:
         "is_translation_only": is_translation_only(affine_matrix),
     }
 
-# These helps are useful early because they let you run the current stage of the pipeline trial-by-trial and inspect intermediate output. 
+
+def apply_global_correction(
+    gaze_df: pd.DataFrame,
+    affine_matrix: np.ndarray,
+    screen_width: int,
+    screen_height: int,
+) -> pd.DataFrame:
+    corrected_df = gaze_df.copy()
+    obs_x, obs_y = gaze2d_to_pixels(
+        corrected_df["gaze2d_x"].to_numpy(),
+        corrected_df["gaze2d_y"].to_numpy(),
+        screen_width,
+        screen_height,
+)
+    corrected_xy = apply_affine_to_points(np.column_stack([obs_x, obs_y]), affine_matrix)
+    corrected_df["Corrected_Gaze_X"] = corrected_xy[:, 0]
+    corrected_df["Corrected_Gaze_Y"] = corrected_xy[:, 1]
+    return add_kinematics_columns(
+        corrected_df, screen_width, screen_height, use_corrected=True
+    )
+
+
+
 def run_step1() -> list[dict]:
     results: list[dict] = []
     for trial_id in range(1, NUM_TRIALS + 1):
@@ -501,6 +521,7 @@ def run_step1() -> list[dict]:
         )
     print(f"  Extracted {trial_result['n_calibration_points']} calibration point(s)")
     return results
+
 
 def run_step2(step1_results: list[dict]) -> list[dict]:
     print("\n" + "=" * 60)
@@ -545,26 +566,6 @@ def run_step2(step1_results: list[dict]) -> list[dict]:
             )
     return step2_results
 
-# Once the matrix is trustworthy, transform every gaze sample and write the corrected CSV for downstream analysis.  
-def apply_global_correction(
-    gaze_df: pd.DataFrame,
-    affine_matrix: np.ndarray,
-    screen_width: int,
-    screen_height: int,
-) -> pd.DataFrame:
-    corrected_df = gaze_df.copy()
-    obs_x, obs_y = gaze2d_to_pixels(
-        corrected_df["gaze2d_x"].to_numpy(),
-        corrected_df["gaze2d_y"].to_numpy(),
-        screen_width,
-        screen_height,
-)
-    corrected_xy = apply_affine_to_points(np.column_stack([obs_x, obs_y]), affine_matrix)
-    corrected_df["Corrected_Gaze_X"] = corrected_xy[:, 0]
-    corrected_df["Corrected_Gaze_Y"] = corrected_xy[:, 1]
-    return add_kinematics_columns(
-        corrected_df, screen_width, screen_height, use_corrected=True
-    )
 
 def export_corrected_gaze(corrected_df: pd.DataFrame, trial_id: int) -> Path:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -572,20 +573,19 @@ def export_corrected_gaze(corrected_df: pd.DataFrame, trial_id: int) -> Path:
     corrected_df.to_csv(output_path, index=False)
     return output_path
 
-# Add plots only after the numeric pipeline is working, so the figure becomes a validation tool rather than a debugging distraction.
 
 def plot_affine_calibration_summary(step2_results: list[dict]) -> Path:
     fig, axes = plt.subplots(
-        3, NUM_TRIALS, figsize=(16, 12), constrained_layout=True,
-        gridspec_kw={"height_ratios": [2.2, 1, 1]},
+        3, NUM_TRIALS, figsize=(16, 11),
+        gridspec_kw={"height_ratios": [1.2, 1, 1], "hspace": 0.27, "wspace": 0.25},
     )
     if NUM_TRIALS == 1:
         axes = axes.reshape(3, 1)
 
     for col, result in enumerate(step2_results):
         ax = axes[0, col]
-        ax_err = axes[1, col]
-        ax_kin = axes[2, col]
+        ax_kin = axes[1, col]
+        ax_err = axes[2, col]
         points = result["corrected_points"]
         screen_w, screen_h = result["screen_width"], result["screen_height"]
         fit_pts = [p for p in points if p["used_for_fit"]]
@@ -631,7 +631,9 @@ def plot_affine_calibration_summary(step2_results: list[dict]) -> Path:
             transform=ax.transAxes, fontsize=7, va="bottom",
             bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
         )
-        ax.set_aspect("equal", adjustable="box")
+        # Anchor south so equal-aspect axes sit at the bottom of the cell
+        # (avoids a large empty gap above the amplitude row).
+        ax.set_aspect("equal", adjustable="box", anchor="S")
         ax.grid(True, alpha=0.3)
 
         ids = [p["target_id"] for p in points]
@@ -674,10 +676,11 @@ def plot_affine_calibration_summary(step2_results: list[dict]) -> Path:
                 ax_amp.plot(i, p["amplitude_x"], "s", mfc="none", mec="teal", markersize=9, markeredgewidth=1.5)
 
         ax_kin.set_title("Per-target kinematics (bright window)")
-        ax_kin.legend(handles=[vel_line, amp_line], loc="upper right", fontsize=7)
+        ax_kin.legend(handles=[vel_line, amp_line], loc="upper left", fontsize=7)
 
     axes[0, 0].legend(loc="lower right", fontsize=7)
     fig.suptitle("2D Affine Calibration (auto-aligned + robust fit)", fontsize=14)
+    fig.subplots_adjust(top=0.92, bottom=0.06, left=0.06, right=0.94, hspace=0.28, wspace=0.28)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     plot_path = OUTPUT_DIR / "drift_correction_summary.png"
@@ -685,7 +688,7 @@ def plot_affine_calibration_summary(step2_results: list[dict]) -> Path:
     plt.close(fig)
     return plot_path
 
-# This is the last piece to polish once extraction, fitting, export, and plots all work end-to-end for the number of trial you care about.
+
 def run_step3(step2_results: list[dict]) -> list[Path]:
     print("\n" + "=" * 60)
     print("STEP 3: Global Correction, Batch Export & Visualization")
@@ -706,55 +709,8 @@ def run_step3(step2_results: list[dict]) -> list[Path]:
     print(f"\nCalibration visualization saved → {plot_path.name}")
     return exported_paths
 
-# #region agent log
-_DEBUG_LOG_PATH = Path(__file__).resolve().parent.parent / ".cursor" / "debug-568686.log"
-
-def _agent_log(hypothesis_id: str, location: str, message: str, data: dict | None = None) -> None:
-    payload = {
-        "sessionId": "568686",
-        "runId": "post-fix",
-        "hypothesisId": hypothesis_id,
-        "location": location,
-        "message": message,
-        "data": data or {},
-        "timestamp": int(time.time() * 1000),
-    }
-    _DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with _DEBUG_LOG_PATH.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(payload) + "\n")
-# #endregion
 
 if __name__ == "__main__":
-    # #region agent log
-    _agent_log("A", "calibration_engine.py:main", "module parsed and entered __main__", {
-        "has_np": "np" in globals(),
-        "has_pd": "pd" in globals(),
-        "has_plt": "plt" in globals(),
-        "run_step3_name": run_step3.__name__,
-    })
-    # #endregion
-    try:
-        step1_results = run_step1()
-        # #region agent log
-        _agent_log("C", "calibration_engine.py:main", "run_step1 completed", {
-            "n_trials": len(step1_results),
-        })
-        # #endregion
-        step2_results = run_step2(step1_results)
-        # #region agent log
-        _agent_log("C", "calibration_engine.py:main", "run_step2 completed", {
-            "n_trials": len(step2_results),
-        })
-        # #endregion
-        run_step3(step2_results)
-        # #region agent log
-        _agent_log("D", "calibration_engine.py:main", "run_step3 completed successfully", {})
-        # #endregion
-    except Exception as exc:
-        # #region agent log
-        _agent_log("E", "calibration_engine.py:main", "runtime failure", {
-            "error_type": type(exc).__name__,
-            "error": str(exc),
-        })
-        # #endregion
-        raise
+    step1_results = run_step1()
+    step2_results = run_step2(step1_results)
+    run_step3(step2_results)

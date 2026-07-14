@@ -218,15 +218,7 @@ Y-axis is inverted (`ylim` top→bottom) to match screen coordinates (origin top
 
 **What “good” looks like:** blue rings sit near green stars; red dots are systematically off (drift), not randomly scattered.
 
-### Middle row — Per-target error bars
-
-- Salmon = error before correction (px)  
-- Steel blue = error after correction (px)  
-- X-axis = target IDs (order = processing order, not 1…9 sorted)
-
-**What “good” looks like:** blue bars much shorter than salmon for almost every target. A remaining tall blue bar on an excluded target is expected (that point was not trusted for the fit).
-
-### Bottom row — Kinematics during the bright window
+### Middle row — Kinematics during the bright window
 
 | Series | Axis | Meaning |
 |--------|------|---------|
@@ -234,6 +226,14 @@ Y-axis is inverted (`ylim` top→bottom) to match screen coordinates (origin top
 | Teal □ Amp X | Right | Peak-to-peak horizontal travel in the window (px) |
 
 High velocity or amplitude can flag unstable fixations (`unstable` quality flag). Hollow markers on excluded points highlight kinematics for outliers.
+
+### Bottom row — Per-target error bars
+
+- Salmon = error before correction (px)  
+- Steel blue = error after correction (px)  
+- X-axis = target IDs (order = processing order, not 1…9 sorted)
+
+**What “good” looks like:** blue bars much shorter than salmon for almost every target. A remaining tall blue bar on an excluded target is expected (that point was not trusted for the fit).
 
 ---
 
@@ -283,6 +283,6 @@ High velocity or amplitude can flag unstable fixations (`unstable` quality flag)
 
 ## Quick talking points for demos
 
-- **PNG:** “Top: did correction land on true targets? Middle: by how many pixels? Bottom: was the eye stable while we measured?”  
+- **PNG:** “Top: did correction land on true targets? Middle: was the eye stable (amplitude/velocity)? Bottom: by how many pixels did error drop?”  
 - **CSV:** “Same timeline as raw gaze, plus screen-pixel corrected X/Y you can use for analysis.”  
 - **Logic:** “Align clocks → median per target → affine map → apply to whole trial.”

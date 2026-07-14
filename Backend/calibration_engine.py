@@ -1,4 +1,12 @@
+from __future__ import annotations
+
 from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import time
+import json
 
 BACKEND_DIR = Path(__file__).resolve().parent
 GAZE_DIR = BACKEND_DIR / "data" / "input"
@@ -235,8 +243,7 @@ def optimize_session_alignment(
     gaze_df: pd.DataFrame,
     targets_df: pd.DataFrame,
 ) -> tuple[float, float, str, float]:
-
-  """
+    """
     Grid-search epoch offset (relative to dim_min) and saccade trim.
 
     Returns (epoch_offset, saccade_trim_s, strategy_label, mean_pre_fit_error_px).
@@ -575,7 +582,7 @@ def plot_affine_calibration_summary(step2_results: list[dict]) -> Path:
     if NUM_TRIALS == 1:
         axes = axes.reshape(3, 1)
 
-    for col, result in enumerate[dict](step2_results):
+    for col, result in enumerate(step2_results):
         ax = axes[0, col]
         ax_err = axes[1, col]
         ax_kin = axes[2, col]
@@ -584,9 +591,9 @@ def plot_affine_calibration_summary(step2_results: list[dict]) -> Path:
         fit_pts = [p for p in points if p["used_for_fit"]]
         excl_pts = [p for p in points if not p["used_for_fit"]]
 
-         def _draw(pts: list[dict], obs_c: str, corr_edge: str, obs_label: str, corr_label: str) -> None:
+        def _draw(pts: list[dict], obs_c: str, corr_edge: str, obs_label: str, corr_label: str) -> None:
             if not pts:
-               return
+                return
             ax.scatter([p["true_x_px"] for p in pts], [p["true_y_px"] for p in pts],
                        marker="*", s=220, c="green", edgecolors="black", linewidths=0.5, zorder=5)
             ax.scatter([p["obs_x_px"] for p in pts], [p["obs_y_px"] for p in pts],
@@ -678,8 +685,8 @@ def plot_affine_calibration_summary(step2_results: list[dict]) -> Path:
     plt.close(fig)
     return plot_path
 
-# This is the last piece to polish once extraction, fitting, export, and plots all work end-to-end for the number of trial you care about. 
-def runstep3(step2_results: list[dict]) -> list[Path]:
+# This is the last piece to polish once extraction, fitting, export, and plots all work end-to-end for the number of trial you care about.
+def run_step3(step2_results: list[dict]) -> list[Path]:
     print("\n" + "=" * 60)
     print("STEP 3: Global Correction, Batch Export & Visualization")
     print("=" * 60)
@@ -694,12 +701,60 @@ def runstep3(step2_results: list[dict]) -> list[Path]:
         output_path = export_corrected_gaze(corrected_df, trial_id)
         exported_paths.append(output_path)
         print(f"\nTrial {trial_id}: exported {len(corrected_df)} rows → {output_path.name}")
-        
+
     plot_path = plot_affine_calibration_summary(step2_results)
     print(f"\nCalibration visualization saved → {plot_path.name}")
     return exported_paths
 
+# #region agent log
+_DEBUG_LOG_PATH = Path(__file__).resolve().parent.parent / ".cursor" / "debug-568686.log"
+
+def _agent_log(hypothesis_id: str, location: str, message: str, data: dict | None = None) -> None:
+    payload = {
+        "sessionId": "568686",
+        "runId": "post-fix",
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data or {},
+        "timestamp": int(time.time() * 1000),
+    }
+    _DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with _DEBUG_LOG_PATH.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(payload) + "\n")
+# #endregion
+
 if __name__ == "__main__":
-    step1_results = run_step1()
-    step2_results = run_step2(step1_results)
-    run_step3(step2_results)
+    # #region agent log
+    _agent_log("A", "calibration_engine.py:main", "module parsed and entered __main__", {
+        "has_np": "np" in globals(),
+        "has_pd": "pd" in globals(),
+        "has_plt": "plt" in globals(),
+        "run_step3_name": run_step3.__name__,
+    })
+    # #endregion
+    try:
+        step1_results = run_step1()
+        # #region agent log
+        _agent_log("C", "calibration_engine.py:main", "run_step1 completed", {
+            "n_trials": len(step1_results),
+        })
+        # #endregion
+        step2_results = run_step2(step1_results)
+        # #region agent log
+        _agent_log("C", "calibration_engine.py:main", "run_step2 completed", {
+            "n_trials": len(step2_results),
+        })
+        # #endregion
+        run_step3(step2_results)
+        # #region agent log
+        _agent_log("D", "calibration_engine.py:main", "run_step3 completed successfully", {})
+        # #endregion
+    except Exception as exc:
+        # #region agent log
+        _agent_log("E", "calibration_engine.py:main", "runtime failure", {
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        })
+        # #endregion
+        raise

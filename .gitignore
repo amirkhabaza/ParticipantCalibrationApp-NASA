@@ -3,13 +3,21 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
+*.pyc
 
-# Session output (regenerated each run)
-Frontend/output/
-
-# Local scratch calibration file
-calibration_enginedub.py
+# IDE / agent
+.cursor/
+.idea/
+.vscode/
 
 # OS
 .DS_Store
 Thumbs.db
+
+# Frontend: live session exports (timestamped). Demo files stay tracked.
+Frontend/calibration_output/calibration_targets_*.csv
+
+# Backend outputs are regenerable — optional to untrack large CSVs/PNG locally
+# Uncomment if you do not want outputs in git:
+# Backend/data/output/*
+# !Backend/data/output/.gitkeep

@@ -9,11 +9,10 @@ import pandas as pd
 BACKEND_DIR = Path(__file__).resolve().parent
 GAZE_DIR = BACKEND_DIR / "data" / "input"
 OUTPUT_DIR = BACKEND_DIR / "data" / "output"
-TARGETS_DIR = BACKEND_DIR.parent / "Frontend" / "calibration output"
+TARGETS_DIR = BACKEND_DIR.parent / "Frontend" / "calibration_output"
 
 NUM_TRIALS = 3
 MIN_AFFINE_POINTS = 3
-PREFERRED_FIT_POINTS = 6
 MIN_GAZE_SAMPLES = 50
 MAX_GAZE_STD = 0.05
 
@@ -35,8 +34,6 @@ def load_trial_data(trial_id: int) -> tuple[pd.DataFrame, pd.DataFrame]:
     return pd.read_csv(gaze_path), pd.read_csv(targets_path)
 
 
-# Implement the clock bridge between Unix epoch timestamps from the frontend and session-relative Tobii timestamps from the gaze CSV.
-
 def estimate_epoch_offset_dim_min(gaze_df: pd.DataFrame, targets_df: pd.DataFrame) -> float:
     """Anchor: earliest dim onset ↔ earliest gaze sample."""
     return targets_df["Dim_Timestamp_Start"].min() - gaze_df["timestamp"].min()
@@ -49,14 +46,6 @@ def estimate_epoch_offset_bright_first(gaze_df: pd.DataFrame, targets_df: pd.Dat
 
 def unix_to_tobii_time(unix_ts: float, epoch_offset: float) -> float:
     return unix_ts - epoch_offset
-
-
-def estimate_epoch_offset(gaze_df: pd.DataFrame, targets_df: pd.DataFrame) -> float:
-    """Backward-compatible alias; prefer optimize_session_alignment."""
-    return estimate_epoch_offset_dim_min(gaze_df, targets_df)
-
-# Implement window extraction, median ovserved gaze, normalized->pixel
-# conversion, and building one calibration point per target.
 
 def slice_calibration_window(
     gaze_df: pd.DataFrame,
@@ -85,8 +74,7 @@ def gaze2d_to_pixels(
 ) -> tuple[float | np.ndarray, float | np.ndarray]:
     return gaze2d_x * screen_width, gaze2d_y * screen_height
 
-# Add optional learning extras: Pre-window velocity/amplitude and per-sample
-# output columns once the core calibration pipeline already works.
+
 def compute_window_velocity_y(window_df: pd.DataFrame, screen_height: int) -> float:
     """Median absolute vertical gaze velocity (px/s) during a calibration window."""
     if len(window_df) < 2:
@@ -231,7 +219,7 @@ def build_calibration_points(
             points.append(point)
     return points
 
-# Once point extraction works, search offset/trim combinations and keep the one that minimizes pre-fit error across calibration targets. 
+
 def mean_pre_fit_error(points: list[dict]) -> float:
     if not points:
         return float("inf")
@@ -337,13 +325,6 @@ def compute_mse_points(true_xy: np.ndarray, pred_xy: np.ndarray) -> float:
     errors = true_xy - pred_xy
     return float(np.mean(np.sum(errors**2, axis=1)))
 
-def is_translation_only(matrix: np.ndarray, tol: float = 1e-6) -> bool:
-    return (
-        abs(matrix[0, 0] - 1.0) < tol
-        and abs(matrix[1, 1] - 1.0) < tol
-        and abs(matrix[0, 1]) < tol
-        and abs(matrix[1, 0]) < tol
-    )
 
 def format_affine_matrix(matrix: np.ndarray) -> str:
     rows = [
@@ -359,7 +340,7 @@ def design_matrix_condition_number(obs_xy: np.ndarray) -> float:
     design = np.column_stack([obs_xy[:, 0], obs_xy[:, 1], np.ones(n)])
     return float(np.linalg.cond(design))
 
-# After the basic affine fit works, make it practical by excluding calibration points that do not agree with the global transform.
+
 def fit_affine_iterative(
     obs_xy: np.ndarray,
     true_xy: np.ndarray,
@@ -481,7 +462,6 @@ def apply_step2(trial_result: dict) -> dict:
         "mean_error_after_fit_set": mean_err_after_fit,
         "worst_target_id": worst_target_id,
         "worst_after_px": worst_after,
-        "is_translation_only": is_translation_only(affine_matrix),
     }
 
 
@@ -497,7 +477,7 @@ def apply_global_correction(
         corrected_df["gaze2d_y"].to_numpy(),
         screen_width,
         screen_height,
-)
+    )
     corrected_xy = apply_affine_to_points(np.column_stack([obs_x, obs_y]), affine_matrix)
     corrected_df["Corrected_Gaze_X"] = corrected_xy[:, 0]
     corrected_df["Corrected_Gaze_Y"] = corrected_xy[:, 1]

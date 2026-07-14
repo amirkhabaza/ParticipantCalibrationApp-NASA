@@ -1,18 +1,19 @@
-# Participant Calibration App — Frontend
+# Frontend — 9-Point Calibration Stimulus
 
-PsychoPy app that runs a **9-point eye-tracker calibration** on the participant monitor. It shows fixation targets and logs **when** (VSYNC-aligned, Unix timestamps) and **where** each target appeared. Gaze is recorded separately by the eye tracker; this repo handles only the **stimulus + ground-truth log** side.
+PsychoPy fullscreen app that presents a **9-point calibration grid** and logs **when** (VSYNC-aligned Unix timestamps) and **where** each target appeared.
 
-Built for NASA internship eye-tracking research.
+Gaze is recorded separately by Tobii. This app only produces the ground-truth CSV used by the [Backend](../Backend/README.md).
+
+Part of [ParticipantCalibrationApp-NASA](https://github.com/amirkhabaza/ParticipantCalibrationApp-NASA).
 
 ---
 
-## Quick start (for software engineers)
+## Quick start
 
-**Prerequisites:** Python **3.10**, a monitor with OpenGL (standard on Mac / Windows laptops).
+**Prerequisites:** Python **3.10**, OpenGL-capable monitor.
 
 ```bash
-git clone https://github.com/amirkhabaza/ParticipantCalibrationApp-FRONTEND.git
-cd ParticipantCalibrationApp-FRONTEND/Frontend
+cd Frontend
 chmod +x run.sh          # macOS / Linux, first time only
 ./run.sh                 # creates .venv, installs deps, runs calibration
 ```
@@ -24,13 +25,14 @@ cd Frontend
 .\run.ps1
 ```
 
-**Smoke test without a participant** (skips instructions and exit prompt; auto-confirms each dim target after 0.3 s):
+**Smoke test** (no participant — skips instructions; auto-confirms dim targets):
 
 ```bash
 ./run.sh --auto
 ```
 
-**Output:** `Frontend/output/calibration_targets_<UTC-timestamp>.csv` (one file per run; see [Output CSV](#output-csv))
+**Output:** `calibration_output/calibration_targets_<UTC-timestamp>.csv`  
+(Demo files used by the backend: `calibration_targets1.csv` … `calibration_targets3.csv`)
 
 ---
 
@@ -47,7 +49,6 @@ cd Frontend
 9. [Troubleshooting](#troubleshooting)
 
 ---
-
 ## What problem this solves
 
 Eye-tracker calibration needs two synchronized streams:
@@ -91,17 +92,16 @@ Each target uses a **dim → confirm → bright** flow: the participant looks at
 ## Repo layout
 
 ```
-ParticipantCalibrationApp-FRONTEND/
-├── README.md                    ← Overview + quick start
-├── Backend/                     ← Calibration model (separate workstream; placeholder)
+ParticipantCalibrationApp/
+├── README.md                    ← Repo overview
+├── Backend/                     ← Affine correction engine
 └── Frontend/
-    ├── README.md                ← Start here (this file)
-    ├── calibration_9point.py    ← Main application (~700 lines, single file)
-    ├── requirements.txt         ← PsychoPy dependency
-    ├── run.sh                   ← macOS/Linux: setup + run
-    ├── run.ps1                  ← Windows: setup + run
-    └── output/
-        └── calibration_targets_<UTC-timestamp>.csv   ← Created after each run (gitignored)
+    ├── README.md                ← Start here
+    ├── calibration_9point.py    ← Main application
+    ├── requirements.txt
+    ├── run.sh / run.ps1
+    └── calibration_output/
+        └── calibration_targets_<UTC-timestamp>.csv
 ```
 
 | File | Purpose |
@@ -109,6 +109,7 @@ ParticipantCalibrationApp-FRONTEND/
 | `calibration_9point.py` | Fullscreen stimulus, dim/bright gating, VSYNC timing, CSV export |
 | `requirements.txt` | `psychopy>=2024.1.4,<2027.0.0` (Python 3.8–3.10) |
 | `run.sh` / `run.ps1` | Create venv, install deps, run script |
+| `calibration_output/` | Target CSVs from each session (demo files: `calibration_targets1..3.csv`) |
 
 Always run from `Frontend/` (or use the run scripts, which `cd` there for you).
 
@@ -171,7 +172,7 @@ python calibration_9point.py --no-circles   # force crosshairs + dot only (no ri
 
 ## Output CSV
 
-**Directory:** `Frontend/output/`
+**Directory:** `Frontend/calibration_output/`
 
 Each run writes a new file named with the **UTC session start time** (millisecond precision):
 
@@ -337,7 +338,7 @@ Single-file design. Entry: `main()` → `run_calibration()`.
 | `present_shrinking_bullseye()` | Dim + bright phases; return four VSYNC timestamps |
 | `unix_epoch_offset()` / `flip_to_unix_time()` | Map PsychoPy clock → Unix epoch |
 | `build_output_filename()` | UTC timestamped CSV name for this session |
-| `save_calibration_csv()` | Write `output/calibration_targets_<UTC-timestamp>.csv` |
+| `save_calibration_csv()` | Write `calibration_output/calibration_targets_<UTC-timestamp>.csv` |
 | `wait_for_confirm()` / `wait_blank_interval()` | Participant pacing + ESC abort |
 
 **Data flow:**
@@ -359,4 +360,4 @@ resolve_window_size → generate_grid_targets → shuffle
 
 ## License / repo
 
-[ParticipantCalibrationApp-FRONTEND](https://github.com/amirkhabaza/ParticipantCalibrationApp-FRONTEND) on GitHub.
+Part of [ParticipantCalibrationApp-NASA](https://github.com/amirkhabaza/ParticipantCalibrationApp-NASA).

@@ -1,13 +1,17 @@
-# Backend Guide — Affine Gaze Calibration
+# Backend — Affine Gaze Calibration
 
-This document explains the entire backend so you can walk someone through the **logic**, the **summary PNG**, and the **corrected CSV** outputs.
-
-Main code: `calibration_engine.py`  
-Run from this folder:
+Offline correction engine for Tobii gaze using Frontend ground-truth targets.
 
 ```bash
+cd Backend
+pip install -r requirements.txt
 python calibration_engine.py
 ```
+
+**Inputs:** `data/input/gazedata{N}.csv` + `../Frontend/calibration_output/calibration_targets{N}.csv`  
+**Outputs:** `data/output/gazedata{N}_corrected.csv` + `drift_correction_summary.png`
+
+See the [root README](../README.md) for the full pipeline. This guide covers backend logic, the summary figure, and CSV columns in detail.
 
 ---
 
@@ -29,7 +33,7 @@ The backend:
 | Path | Role |
 |------|------|
 | `data/input/gazedata{N}.csv` | Raw Tobii gaze for trial N |
-| `../Frontend/calibration output/calibration_targets{N}.csv` | Target positions + Unix timestamps from the frontend |
+| `../Frontend/calibration_output/calibration_targets{N}.csv` | Target positions + Unix timestamps from the frontend |
 | `data/output/gazedata{N}_corrected.csv` | Full trial gaze + corrected pixels + kinematics |
 | `data/output/drift_correction_summary.png` | Visual QA of the fit for all trials |
 

@@ -592,7 +592,7 @@ def save_calibration_csv(rows: list[dict], output_path: Path) -> None:
 
 
 def run_calibration() -> Path:
-    output_path = FRONTEND_DIR / "calibration output" / build_output_filename()
+    output_path = FRONTEND_DIR / "calibration_output" / build_output_filename()
 
     enable_windows_dpi_awareness()
     print(f"Platform: {sys.platform}")

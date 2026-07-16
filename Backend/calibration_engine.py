@@ -556,16 +556,15 @@ def export_corrected_gaze(corrected_df: pd.DataFrame, trial_id: int) -> Path:
 
 def plot_affine_calibration_summary(step2_results: list[dict]) -> Path:
     fig, axes = plt.subplots(
-        3, NUM_TRIALS, figsize=(16, 11),
-        gridspec_kw={"height_ratios": [1.2, 1, 1], "hspace": 0.27, "wspace": 0.25},
+        2, NUM_TRIALS, figsize=(16, 8),
+        gridspec_kw={"height_ratios": [1.2, 1], "hspace": 0.27, "wspace": 0.25},
     )
     if NUM_TRIALS == 1:
-        axes = axes.reshape(3, 1)
+        axes = axes.reshape(2, 1)
 
     for col, result in enumerate(step2_results):
         ax = axes[0, col]
         ax_kin = axes[1, col]
-        ax_err = axes[2, col]
         points = result["corrected_points"]
         screen_w, screen_h = result["screen_width"], result["screen_height"]
         fit_pts = [p for p in points if p["used_for_fit"]]
@@ -617,17 +616,7 @@ def plot_affine_calibration_summary(step2_results: list[dict]) -> Path:
         ax.grid(True, alpha=0.3)
 
         ids = [p["target_id"] for p in points]
-        before = [p["error_before_px"] for p in points]
-        after = [p["error_after_px"] for p in points]
         x = np.arange(len(ids))
-        ax_err.bar(x - 0.15, before, width=0.3, label="Before", color="salmon")
-        ax_err.bar(x + 0.15, after, width=0.3, label="After", color="steelblue")
-        ax_err.set_xticks(x)
-        ax_err.set_xticklabels([str(i) for i in ids], fontsize=7)
-        ax_err.set_ylabel("Error (px)")
-        ax_err.set_title("Per-target error")
-        ax_err.legend(fontsize=7)
-        ax_err.grid(True, alpha=0.3, axis="y")
 
         vel_y = [p["velocity_y"] for p in points]
         amp_x = [p["amplitude_x"] for p in points]

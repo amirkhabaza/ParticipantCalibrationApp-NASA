@@ -721,3 +721,30 @@ def plot_affine_calibration_summary(step2_results: list[dict]) -> Path:
     fig.savefig(plot_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return plot_path
+
+
+def run_step3(step2_results: list[dict]) -> list[Path]:
+    print("\n" + "=" * 60)
+    print("STEP 3: Global Correction, Batch Export & Visualization")
+    print("=" * 60)
+
+    exported_paths: list[Path] = []
+    for result in step2_results:
+        trial_id = result["trial"]
+        gaze_df, _ = load_trial_data(trial_id)
+        corrected_df = apply_global_correction(
+            gaze_df, result["affine_matrix"], result["screen_width"], result["screen_height"]
+        )
+        output_path = export_corrected_gaze(corrected_df, trial_id)
+        exported_paths.append(output_path)
+        print(f"\nTrial {trial_id}: exported {len(corrected_df)} rows → {output_path.name}")
+
+    plot_path = plot_affine_calibration_summary(step2_results)
+    print(f"\nCalibration visualization saved → {plot_path.name}")
+    return exported_paths
+
+
+if __name__ == "__main__":
+    step1_results = run_step1()
+    step2_results = run_step2(step1_results)
+    run_step3(step2_results)

@@ -568,17 +568,16 @@ def plot_affine_calibration_summary(step2_results: list[dict]) -> Path:
     })
 
     fig, axes = plt.subplots(
-        3, NUM_TRIALS, figsize=(16, 13),
-        gridspec_kw={"height_ratios": [1, 1, 0.8], "hspace": 0.35, "wspace": 0.25},
+        2, NUM_TRIALS, figsize=(16, 10),
+        gridspec_kw={"height_ratios": [1, 1], "hspace": 0.35, "wspace": 0.25},
     )
     if NUM_TRIALS == 1:
-        axes = axes.reshape(3, 1)
+        axes = axes.reshape(2, 1)
 
     for col, result in enumerate(step2_results):
         ax_before = axes[0, col]
         ax_after = axes[1, col]
-        ax_kin = axes[2, col]
-        
+
         points = result["corrected_points"]
         fit_pts = [p for p in points if p["used_for_fit"]]
         excl_pts = [p for p in points if not p["used_for_fit"]]
@@ -586,7 +585,7 @@ def plot_affine_calibration_summary(step2_results: list[dict]) -> Path:
         # Calculate bounding box for zoom based on all coordinate data
         all_x = [p["true_x_px"] for p in points] + [p["obs_x_px"] for p in points] + [p["corrected_x_px"] for p in points]
         all_y = [p["true_y_px"] for p in points] + [p["obs_y_px"] for p in points] + [p["corrected_y_px"] for p in points]
-        
+
         padding = 100
         zoom_min_x, zoom_max_x = min(all_x) - padding, max(all_x) + padding
         zoom_min_y, zoom_max_y = min(all_y) - padding, max(all_y) + padding
@@ -596,7 +595,7 @@ def plot_affine_calibration_summary(step2_results: list[dict]) -> Path:
         # ---------------------------------------------------------
         ax_before.scatter([p["true_x_px"] for p in points], [p["true_y_px"] for p in points],
                           marker="*", s=220, c="#2ca02c", edgecolors="black", linewidths=0.5, zorder=5, label="True Target")
-        
+
         if fit_pts:
             ax_before.scatter([p["obs_x_px"] for p in fit_pts], [p["obs_y_px"] for p in fit_pts],
                               marker="o", s=65, c="#d62728", edgecolors="black", linewidths=0.5,
@@ -620,8 +619,7 @@ def plot_affine_calibration_summary(step2_results: list[dict]) -> Path:
         )
         ax_before.set_aspect("equal", adjustable="box", anchor="S")
         ax_before.grid(True)
-        
-        # Restore the bottom-left text box style for the "Before" plot
+
         ax_before.text(
             0.03, 0.03,
             f"Mean pre-fit err: {result['mean_error_before_fit_set']:.0f} px",
@@ -637,7 +635,7 @@ def plot_affine_calibration_summary(step2_results: list[dict]) -> Path:
         # ---------------------------------------------------------
         ax_after.scatter([p["true_x_px"] for p in points], [p["true_y_px"] for p in points],
                          marker="*", s=220, c="#2ca02c", edgecolors="black", linewidths=0.5, zorder=5, label="True Target")
-        
+
         if fit_pts:
             ax_after.scatter([p["corrected_x_px"] for p in fit_pts], [p["corrected_y_px"] for p in fit_pts],
                              marker="o", s=65, facecolors="none", edgecolors="#1f77b4",
@@ -657,15 +655,14 @@ def plot_affine_calibration_summary(step2_results: list[dict]) -> Path:
         ax_after.set_ylim(zoom_max_y, zoom_min_y)
         ax_after.set_xlabel("X (pixels)", fontweight="bold")
         ax_after.set_ylabel("Y (pixels)", fontweight="bold")
-        
+
         ax_after.set_title(
             f"After Correction — {len(fit_pts)} fit / {len(excl_pts)} excl",
             fontsize=11
         )
         ax_after.set_aspect("equal", adjustable="box", anchor="S")
         ax_after.grid(True)
-        
-        # Restore the original MSE and Error text box format
+
         ax_after.text(
             0.03, 0.03,
             f"MSE fit: {result['mse_after_fit_set']:.0f} px²\n"
@@ -677,44 +674,8 @@ def plot_affine_calibration_summary(step2_results: list[dict]) -> Path:
         if col == 0:
             ax_after.legend(loc="lower right", fontsize=8, frameon=True, facecolor="white", edgecolor="#333333", framealpha=0.9)
 
-        # ---------------------------------------------------------
-        # ROW 3: KINEMATICS
-        # ---------------------------------------------------------
-        ids = [p["target_id"] for p in points]
-        x = np.arange(len(ids))
-
-        vel_y = [p["velocity_y"] for p in points]
-        amp_x = [p["amplitude_x"] for p in points]
-        fit_mask = [p["used_for_fit"] for p in points]
-
-        (vel_line,) = ax_kin.plot(
-            x, vel_y, "o-", color="#9467bd", linewidth=1.8, markersize=6, label="Vel Y (px/s)"
-        )
-        ax_kin.set_ylabel("Vel Y (px/s)", color="#9467bd", fontweight="bold")
-        ax_kin.tick_params(axis="y", labelcolor="#9467bd")
-        ax_kin.set_xticks(x)
-        ax_kin.set_xticklabels([str(i) for i in ids], fontsize=8)
-        ax_kin.set_xlabel("Target ID", fontweight="bold")
-        ax_kin.grid(True)
-
-        ax_amp = ax_kin.twinx()
-        (amp_line,) = ax_amp.plot(
-            x, amp_x, "s-", color="#17becf", linewidth=1.8, markersize=6, label="Amp X (px)"
-        )
-        ax_amp.set_ylabel("Amp X (px)", color="#17becf", fontweight="bold")
-        ax_amp.tick_params(axis="y", labelcolor="#17becf")
-
-        for i, (is_fit, p) in enumerate(zip(fit_mask, points)):
-            if not is_fit:
-                ax_kin.plot(i, p["velocity_y"], "o", mfc="none", mec="#9467bd", markersize=10, markeredgewidth=1.8)
-                ax_amp.plot(i, p["amplitude_x"], "s", mfc="none", mec="#17becf", markersize=10, markeredgewidth=1.8)
-
-        ax_kin.set_title("Per-target kinematics (bright window)", fontsize=11)
-        if col == 0:
-            ax_kin.legend(handles=[vel_line, amp_line], loc="upper left", fontsize=8, frameon=True, facecolor="white", edgecolor="#333333")
-
     fig.suptitle("2D Affine Calibration (auto-aligned + robust fit)", fontsize=16, fontweight="bold")
-    fig.subplots_adjust(top=0.92, bottom=0.06, left=0.06, right=0.94, hspace=0.35, wspace=0.28)
+    fig.subplots_adjust(top=0.90, bottom=0.08, left=0.06, right=0.94, hspace=0.35, wspace=0.28)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     plot_path = OUTPUT_DIR / "drift_correction_summary.png"

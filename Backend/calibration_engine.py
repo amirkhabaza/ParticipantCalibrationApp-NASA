@@ -684,6 +684,7 @@ def plot_affine_calibration_summary(step2_results: list[dict]) -> Path:
     return plot_path
 
 
+# Step 3
 def run_step3(step2_results: list[dict]) -> list[Path]:
     print("\n" + "=" * 60)
     print("STEP 3: Global Correction, Batch Export & Visualization")

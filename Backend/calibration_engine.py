@@ -554,49 +554,25 @@ def export_corrected_gaze(corrected_df: pd.DataFrame, trial_id: int) -> Path:
     return output_path
 
 
-def _style_axes_paper(ax) -> None:
-    """Paper-figure axis chrome: faint grid, no top/right spines, small ticks."""
-    ax.grid(True, which="major", color="#d0d0d0", linestyle="-", linewidth=0.6, alpha=0.35)
-    ax.set_axisbelow(True)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.spines["left"].set_color("#555555")
-    ax.spines["bottom"].set_color("#555555")
-    ax.tick_params(axis="both", labelsize=8, colors="#444444", length=3, width=0.8)
-
-
 def plot_affine_calibration_summary(step2_results: list[dict]) -> Path:
-    # Muted scientific palette (not Matplotlib Tableau defaults)
-    color_target = "#2b2b2b"
-    color_before = "#b85c38"
-    color_after = "#2f4a6e"
-    color_excl = "#8a8a8a"
-
+    # Apply a clean, modern style globally for this figure
     plt.rcParams.update({
         "figure.facecolor": "white",
         "axes.facecolor": "white",
-        "font.family": "sans-serif",
-        "font.sans-serif": ["Helvetica", "Arial", "DejaVu Sans"],
-        "font.size": 9,
+        "axes.edgecolor": "#333333",
+        "axes.linewidth": 1.2,
+        "grid.color": "#e0e0e0",
+        "grid.linestyle": "-",
+        "grid.alpha": 0.7,
+        "font.size": 10,
     })
 
     fig, axes = plt.subplots(
-        2, NUM_TRIALS, figsize=(11, 7.5),
-        gridspec_kw={"height_ratios": [1, 1], "hspace": 0.18, "wspace": 0.16},
+        2, NUM_TRIALS, figsize=(16, 10),
+        gridspec_kw={"height_ratios": [1, 1], "hspace": 0.35, "wspace": 0.25},
     )
     if NUM_TRIALS == 1:
         axes = axes.reshape(2, 1)
-
-    # Shared limits across all panels
-    all_x: list[float] = []
-    all_y: list[float] = []
-    for result in step2_results:
-        for p in result["corrected_points"]:
-            all_x.extend([p["true_x_px"], p["obs_x_px"], p["corrected_x_px"]])
-            all_y.extend([p["true_y_px"], p["obs_y_px"], p["corrected_y_px"]])
-    padding = 80
-    zoom_min_x, zoom_max_x = min(all_x) - padding, max(all_x) + padding
-    zoom_min_y, zoom_max_y = min(all_y) - padding, max(all_y) + padding
 
     for col, result in enumerate(step2_results):
         ax_before = axes[0, col]
@@ -606,54 +582,104 @@ def plot_affine_calibration_summary(step2_results: list[dict]) -> Path:
         fit_pts = [p for p in points if p["used_for_fit"]]
         excl_pts = [p for p in points if not p["used_for_fit"]]
 
-        # --- Before ---
-        ax_before.scatter(
-            [p["true_x_px"] for p in points], [p["true_y_px"] for p in points],
-            marker="+", s=55, c=color_target, linewidths=1.1, zorder=5,
-        )
+        # Calculate bounding box for zoom based on all coordinate data
+        all_x = [p["true_x_px"] for p in points] + [p["obs_x_px"] for p in points] + [p["corrected_x_px"] for p in points]
+        all_y = [p["true_y_px"] for p in points] + [p["obs_y_px"] for p in points] + [p["corrected_y_px"] for p in points]
+
+        padding = 100
+        zoom_min_x, zoom_max_x = min(all_x) - padding, max(all_x) + padding
+        zoom_min_y, zoom_max_y = min(all_y) - padding, max(all_y) + padding
+
+        # ---------------------------------------------------------
+        # ROW 1: BEFORE CORRECTION (Raw Gaze)
+        # ---------------------------------------------------------
+        ax_before.scatter([p["true_x_px"] for p in points], [p["true_y_px"] for p in points],
+                          marker="*", s=220, c="#2ca02c", edgecolors="black", linewidths=0.5, zorder=5, label="True Target")
+
         if fit_pts:
-            ax_before.scatter(
-                [p["obs_x_px"] for p in fit_pts], [p["obs_y_px"] for p in fit_pts],
-                marker="o", s=36, c=color_before, edgecolors="none", zorder=4,
-            )
+            ax_before.scatter([p["obs_x_px"] for p in fit_pts], [p["obs_y_px"] for p in fit_pts],
+                              marker="o", s=65, c="#d62728", edgecolors="black", linewidths=0.5,
+                              label="Original (fit)", zorder=4)
         if excl_pts:
-            ax_before.scatter(
-                [p["obs_x_px"] for p in excl_pts], [p["obs_y_px"] for p in excl_pts],
-                marker="x", s=40, c=color_excl, linewidths=1.2, zorder=4,
-            )
+            ax_before.scatter([p["obs_x_px"] for p in excl_pts], [p["obs_y_px"] for p in excl_pts],
+                              marker="o", s=65, c="#ff7f0e", edgecolors="black", linewidths=0.5,
+                              label="Original (excl)", zorder=4)
+
+        for p in points:
+            ax_before.annotate(str(p["target_id"]), (p["true_x_px"], p["true_y_px"]),
+                               textcoords="offset points", xytext=(4, 4), fontsize=8, color="#1a521a", fontweight="bold")
 
         ax_before.set_xlim(zoom_min_x, zoom_max_x)
         ax_before.set_ylim(zoom_max_y, zoom_min_y)
-        ax_before.set_aspect("equal", adjustable="box")
-        _style_axes_paper(ax_before)
-
-        # --- After ---
-        ax_after.scatter(
-            [p["true_x_px"] for p in points], [p["true_y_px"] for p in points],
-            marker="+", s=55, c=color_target, linewidths=1.1, zorder=5,
+        ax_before.set_ylabel("Y (pixels)", fontweight="bold")
+        ax_before.set_title(
+            f"Trial {result['trial']} — Before Correction\n"
+            f"{result['align_strategy']} | trim {result['saccade_trim_s']:.1f}s",
+            fontsize=11
         )
+        ax_before.set_aspect("equal", adjustable="box", anchor="S")
+        ax_before.grid(True)
+
+        ax_before.text(
+            0.03, 0.03,
+            f"Mean pre-fit err: {result['mean_error_before_fit_set']:.0f} px",
+            transform=ax_before.transAxes, fontsize=8, va="bottom",
+            bbox=dict(boxstyle="round,pad=0.4", facecolor="white", edgecolor="#333333", alpha=0.9),
+        )
+
+        if col == 0:
+            ax_before.legend(loc="lower right", fontsize=8, frameon=True, facecolor="white", edgecolor="#333333", framealpha=0.9)
+
+        # ---------------------------------------------------------
+        # ROW 2: AFTER CORRECTION (Corrected Gaze)
+        # ---------------------------------------------------------
+        ax_after.scatter([p["true_x_px"] for p in points], [p["true_y_px"] for p in points],
+                         marker="*", s=220, c="#2ca02c", edgecolors="black", linewidths=0.5, zorder=5, label="True Target")
+
         if fit_pts:
-            ax_after.scatter(
-                [p["corrected_x_px"] for p in fit_pts], [p["corrected_y_px"] for p in fit_pts],
-                marker="o", s=36, facecolors="none", edgecolors=color_after,
-                linewidths=1.2, zorder=6,
-            )
+            ax_after.scatter([p["corrected_x_px"] for p in fit_pts], [p["corrected_y_px"] for p in fit_pts],
+                             marker="o", s=65, facecolors="none", edgecolors="#1f77b4",
+                             linewidths=1.5, label="Corrected (fit)", zorder=6)
         if excl_pts:
-            ax_after.scatter(
-                [p["corrected_x_px"] for p in excl_pts], [p["corrected_y_px"] for p in excl_pts],
-                marker="x", s=40, c=color_excl, linewidths=1.2, zorder=6,
-            )
+            ax_after.scatter([p["corrected_x_px"] for p in excl_pts], [p["corrected_y_px"] for p in excl_pts],
+                             marker="o", s=65, facecolors="none", edgecolors="#17becf",
+                             linewidths=1.5, label="Corrected (excl)", zorder=6)
+
+        for p in points:
+            ax_after.plot([p["corrected_x_px"], p["true_x_px"]], [p["corrected_y_px"], p["true_y_px"]],
+                          "--", color="#1f77b4", linewidth=1.2, alpha=0.7)
+            ax_after.annotate(str(p["target_id"]), (p["true_x_px"], p["true_y_px"]),
+                              textcoords="offset points", xytext=(4, 4), fontsize=8, color="#1a521a", fontweight="bold")
 
         ax_after.set_xlim(zoom_min_x, zoom_max_x)
         ax_after.set_ylim(zoom_max_y, zoom_min_y)
-        ax_after.set_aspect("equal", adjustable="box")
-        _style_axes_paper(ax_after)
+        ax_after.set_xlabel("X (pixels)", fontweight="bold")
+        ax_after.set_ylabel("Y (pixels)", fontweight="bold")
 
-    fig.subplots_adjust(top=0.94, bottom=0.07, left=0.08, right=0.98, hspace=0.38, wspace=0.16)
+        ax_after.set_title(
+            f"After Correction — {len(fit_pts)} fit / {len(excl_pts)} excl",
+            fontsize=11
+        )
+        ax_after.set_aspect("equal", adjustable="box", anchor="S")
+        ax_after.grid(True)
+
+        ax_after.text(
+            0.03, 0.03,
+            f"MSE fit: {result['mse_after_fit_set']:.0f} px²\n"
+            f"Mean err: {result['mean_error_before_fit_set']:.0f} → {result['mean_error_after_fit_set']:.0f} px",
+            transform=ax_after.transAxes, fontsize=8, va="bottom",
+            bbox=dict(boxstyle="round,pad=0.4", facecolor="white", edgecolor="#333333", alpha=0.9),
+        )
+
+        if col == 0:
+            ax_after.legend(loc="lower right", fontsize=8, frameon=True, facecolor="white", edgecolor="#333333", framealpha=0.9)
+
+    fig.suptitle("2D Affine Calibration (auto-aligned + robust fit)", fontsize=16, fontweight="bold")
+    fig.subplots_adjust(top=0.90, bottom=0.08, left=0.06, right=0.94, hspace=0.35, wspace=0.28)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     plot_path = OUTPUT_DIR / "drift_correction_summary.png"
-    fig.savefig(plot_path, dpi=250, bbox_inches="tight")
+    fig.savefig(plot_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return plot_path
 

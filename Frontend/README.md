@@ -4,7 +4,7 @@ PsychoPy fullscreen app that presents a **9-point calibration grid** and logs **
 
 Gaze is recorded separately by Tobii. This app only produces the ground-truth CSV used by the [Backend](../Backend/README.md).
 
-Part of [ParticipantCalibrationApp-NASA](https://github.com/amirkhabaza/ParticipantCalibrationApp-NASA).
+Part of [ParticipantCalibrationApp-NASA](https://github.com/amirkhabaza/ParticipantCalibrationApp-NASA) — this exact protocol calibrated Tobii glasses for 12 participants in the [LLATT workload study](../README.md#validated-in-the-field-the-llatt-study).
 
 ---
 

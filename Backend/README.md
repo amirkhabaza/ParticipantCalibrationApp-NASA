@@ -13,6 +13,8 @@ python calibration_engine.py
 
 See the [root README](../README.md) for the full pipeline. This guide covers backend logic, the summary figure, and CSV columns in detail.
 
+This engine produced the corrected gaze and pupil-diameter data used for workload analysis in the [LLATT study](../README.md#validated-in-the-field-the-llatt-study) (N = 12).
+
 ---
 
 ## What problem does this solve?

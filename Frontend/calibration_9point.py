@@ -62,6 +62,9 @@ JOYSTICK_CONFIRM_BUTTON = 0  # button index for click (0 = typical trigger)
 TEXT_HEIGHT_PX = 28
 TEXT_WRAP_FRACTION = 0.75
 PROMPT_COLOR = [0.7, 0.7, 0.7]
+PROGRESS_TEXT_HEIGHT_PX = 20
+PROGRESS_TEXT_COLOR = [0.45, 0.45, 0.45]
+PROGRESS_MARGIN_PX = 36  # inset from the top-left corner, clear of the grid targets
 
 
 def build_confirm_prompt(use_joystick: bool) -> str:
@@ -73,11 +76,12 @@ def build_confirm_prompt(use_joystick: bool) -> str:
 def build_instructions_text(use_joystick: bool) -> str:
     confirm = build_confirm_prompt(use_joystick)
     return (
-        "Eye-tracker calibration\n\n"
-        "1. A dim dot will appear.\n"
-        "2. Look at the center of the dot.\n"
-        f"3. {confirm} when you are ready.\n"
-        "4. The dot will turn bright for 2 seconds. Keep looking at it.\n\n"
+        "EYE-TRACKER CALIBRATION\n"
+        "—————————————————\n\n"
+        "1.  A dim dot will appear.\n"
+        "2.  Look at the center of the dot.\n"
+        f"3.  {confirm} when you are ready.\n"
+        "4.  The dot will turn bright for 2 seconds. Keep looking at it.\n\n"
         f"{confirm} to begin."
     )
 
@@ -233,6 +237,21 @@ def make_screen_text(
         alignText="center",
         anchorHoriz="center",
         anchorVert="center",
+    )
+
+
+def create_progress_text(win: visual.Window, screen_width: int, screen_height: int) -> visual.TextStim:
+    """Small 'Target N of 9' counter, anchored top-left clear of the calibration grid."""
+    return visual.TextStim(
+        win,
+        text="",
+        color=PROGRESS_TEXT_COLOR,
+        height=PROGRESS_TEXT_HEIGHT_PX,
+        units="pix",
+        pos=(-screen_width / 2.0 + PROGRESS_MARGIN_PX, screen_height / 2.0 - PROGRESS_MARGIN_PX),
+        alignText="left",
+        anchorHoriz="left",
+        anchorVert="top",
     )
 
 
@@ -658,12 +677,14 @@ def run_calibration() -> Path:
         print("Timestamps: vsync flip times converted to Unix epoch seconds")
 
         total_targets = len(presentation_order)
+        progress_text = create_progress_text(win, screen_width, screen_height)
         for index, target in enumerate(presentation_order):
+            progress_text.text = f"Target {index + 1} of {total_targets}"
             dim_start, dim_end, bright_start, bright_end = present_shrinking_bullseye(
                 win,
                 bullseye,
                 target,
-                None,
+                progress_text,
                 show_circles=show_circles,
                 epoch_offset=epoch_offset,
                 auto_confirm_after_s=auto_confirm_after_s,
@@ -696,7 +717,7 @@ def run_calibration() -> Path:
 
         done_text = make_screen_text(
             win,
-            "Calibration complete.\n\nPress any key to exit.",
+            "CALIBRATION COMPLETE\n—————————————————\n\nPress any key to exit.",
             screen_width,
         )
         event.clearEvents(eventType="keyboard")
